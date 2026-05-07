@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+# =============================================================================
+# instant_q — Bash CLI for the Instant Q Engine
+#
+# Wraps the C++ binary with config resolution, BEAGLE file lookup, cache
+# management, and convenience modes (single region / precompute / all).
+#
+# Usage:
+#   # Single region → stdout
+#   instant_q --chr C_gar_LG01 --start 35000000 --end 41000000
+#
+#   # Precompute one chromosome → cache
+#   instant_q --precompute --chr C_gar_LG01
+#
+#   # Precompute all 28 chromosomes (parallel)
+#   instant_q --precompute --all --ncores 28
+#
+#   # Use custom config
+#   instant_q --config 00_ancestry_config.sh --chr C_gar_LG06 --start 0 --end 5000000
+#
+# =============================================================================
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── Defaults ──
+CONFIG=""
+CHR=""
+START=""
+END=""
+PRECOMPUTE=0
+ALL=0
+NCORES=4
+WINDOW_SIZE=100
+WINDOW_STEP=20
+EM_ITER=20
+FORCE=0
+SAMPLE_OUTPUT=0
+
+# ── Parse CLI ──
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --config)        CONFIG="$2"; shift 2;;
+    --chr)           CHR="$2"; shift 2;;
+    --start)         START="$2"; shift 2;;
+    --end)           END="$2"; shift 2;;
+    --precompute)    PRECOMPUTE=1; shift;;
+    --all)           ALL=1; shift;;
+    --ncores)        NCORES="$2"; shift 2;;
+    --window_size)   WINDOW_SIZE="$2"; shift 2;;
+    --window_step)   WINDOW_STEP="$2"; shift 2;;
+    --em_iter)       EM_ITER="$2"; shift 2;;
+    --force)         FORCE=1; shift;;
+    --sample_output) SAMPLE_OUTPUT=1; shift;;
+    -h|--help)
+      sed -n '2,/^# ====/p' "$0" | head -20
+      exit 0;;
+    *) echo "[instant_q] Unknown arg: $1" >&2; exit 1;;
+  esac
+done
+
+# ── Load config ──
+if [[ -n "$CONFIG" && -f "$CONFIG" ]]; then
+  source "$CONFIG"
+elif [[ -f "${SCRIPT_DIR}/00_ancestry_config.sh" ]]; then
+  source "${SCRIPT_DIR}/00_ancestry_config.sh"
+elif [[ -f "./00_ancestry_config.sh" ]]; then
+  source "./00_ancestry_config.sh"
+fi
+
+# ── Resolve paths ──
+BINARY="${INSTANT_Q_BIN:-}"
+if [[ -z "$BINARY" ]]; then
+  for cand in \
+    "${SCRIPT_DIR}/src/instant_q" \
+    "${SCRIPT_DIR}/instant_q_bin" \
+    "$(command -v instant_q 2>/dev/null || true)" \
+    "${HOME}/.local/bin/instant_q"
+  do
+    if [[ -n "$cand" && -x "$cand" ]]; then
+      BINARY="$cand"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$BINARY" || ! -x "$BINARY" ]]; then
+  echo "[instant_q] ERROR: C++ binary not found. Compile with: cd src && make" >&2
+  exit 1
+fi
+
+BEAGLE_DIR="${BEAGLE_DIR:-${STEP1_BEAGLE_DIR:-}}"
+FOPT="${BEST_FOPT:-${FOPT_FILE:-}}"
+QINIT="${BEST_QOPT:-${QINIT_FILE:-}}"
+CACHE_DIR="${LOCAL_Q_DIR:-local_Q}"
+SAMPLE_LIST_FILE="${SAMPLE_LIST:-${STEP1_SAMPLE_LIST:-}}"
+
+if [[ -z "$BEAGLE_DIR" || -z "$FOPT" || -z "$QINIT" ]]; then
+  echo "[instant_q] ERROR: BEAGLE_DIR, BEST_FOPT, BEST_QOPT must be set (via config or env)" >&2
+  exit 1
+fi
+
+# ── Resolve BEAGLE for a chromosome ──
+resolve_beagle() {
+  local chr="$1"
+  local bgl
+  bgl=$(ls "${BEAGLE_DIR}"/*${chr}*.beagle.gz 2>/dev/null | head -1)
+  if [[ -z "$bgl" ]]; then
+    bgl=$(ls "${BEAGLE_DIR}"/*${chr}*.beagle 2>/dev/null | head -1)
+  fi
+  if [[ -z "$bgl" ]]; then
+    echo "[instant_q] ERROR: No BEAGLE found for ${chr} in ${BEAGLE_DIR}" >&2
+    return 1
+  fi
+  echo "$bgl"
+}
+
+# ── Single region mode ──
+if [[ $PRECOMPUTE -eq 0 && -n "$CHR" && -n "$START" && -n "$END" ]]; then
+  BGL=$(resolve_beagle "$CHR")
+  SAMPLE_ARG=""
+  if [[ -n "$SAMPLE_LIST_FILE" && -f "$SAMPLE_LIST_FILE" ]]; then
+    SAMPLE_ARG="--sample_list $SAMPLE_LIST_FILE"
+  fi
+  exec "$BINARY" \
+    --beagle "$BGL" --fopt "$FOPT" --qinit "$QINIT" \
+    --chr "$CHR" --start "$START" --end "$END" \
+    --em_iter "$EM_ITER" $SAMPLE_ARG
+fi
+
+# ── Precompute mode ──
+if [[ $PRECOMPUTE -eq 1 ]]; then
+  mkdir -p "$CACHE_DIR"
+
+  run_precompute() {
+    local chr="$1"
+    local summary="${CACHE_DIR}/${chr}.local_Q_summary.tsv.gz"
+    local summary_plain="${CACHE_DIR}/${chr}.local_Q_summary.tsv"
+
+    if [[ $FORCE -eq 0 && ( -f "$summary" || -f "$summary_plain" ) ]]; then
+      echo "[instant_q] Cache exists for ${chr} — skip (use --force to recompute)" >&2
+      return 0
+    fi
+
+    local bgl
+    bgl=$(resolve_beagle "$chr") || return 1
+    local tmpdir
+    tmpdir=$(mktemp -d /tmp/iq_XXXXXX)
+
+    local extra_flags=""
+    if [[ $SAMPLE_OUTPUT -eq 1 ]]; then
+      extra_flags="--sample_output"
+    fi
+    if [[ -n "$SAMPLE_LIST_FILE" && -f "$SAMPLE_LIST_FILE" ]]; then
+      extra_flags="$extra_flags --sample_list $SAMPLE_LIST_FILE"
+    fi
+
+    echo "[instant_q] Precompute: ${chr}" >&2
+    "$BINARY" \
+      --beagle "$bgl" --fopt "$FOPT" --qinit "$QINIT" \
+      --precompute --outdir "$tmpdir" --chr "$chr" \
+      --window_size "$WINDOW_SIZE" --window_step "$WINDOW_STEP" \
+      --em_iter "$EM_ITER" --ncores 1 \
+      $extra_flags
+
+    # Move results to cache (gzip if large)
+    for f in "${tmpdir}/${chr}".*; do
+      [[ -f "$f" ]] || continue
+      local bn=$(basename "$f")
+      if [[ "$bn" == *summary.tsv ]]; then
+        gzip -c "$f" > "${CACHE_DIR}/${bn}.gz"
+      else
+        cp "$f" "${CACHE_DIR}/"
+      fi
+    done
+
+    rm -rf "$tmpdir"
+    echo "[instant_q] Cached: ${chr}" >&2
+  }
+
+  if [[ $ALL -eq 1 ]]; then
+    # Discover all chromosomes from BEAGLE dir
+    CHROMS=()
+    for bgl in "${BEAGLE_DIR}"/*.beagle.gz; do
+      [[ -f "$bgl" ]] || continue
+      chr=$(basename "$bgl" | grep -oP 'C_gar_LG\d+' | head -1)
+      if [[ -n "$chr" ]]; then
+        CHROMS+=("$chr")
+      fi
+    done
+
+    if [[ ${#CHROMS[@]} -eq 0 ]]; then
+      echo "[instant_q] ERROR: No chromosomes found in ${BEAGLE_DIR}" >&2
+      exit 1
+    fi
+
+    echo "[instant_q] Precomputing ${#CHROMS[@]} chromosomes with ${NCORES} parallel jobs" >&2
+
+    # GNU parallel if available, else xargs
+    if command -v parallel &>/dev/null; then
+      export -f run_precompute resolve_beagle
+      export BINARY FOPT QINIT CACHE_DIR WINDOW_SIZE WINDOW_STEP EM_ITER FORCE SAMPLE_OUTPUT BEAGLE_DIR
+      printf '%s\n' "${CHROMS[@]}" | parallel -j "$NCORES" run_precompute
+    else
+      printf '%s\n' "${CHROMS[@]}" | xargs -P "$NCORES" -I{} bash -c '
+        source "'"$0"'"
+        run_precompute "{}"
+      ' -- "${BASH_SOURCE[0]}"
+    fi
+
+  elif [[ -n "$CHR" ]]; then
+    run_precompute "$CHR"
+  else
+    echo "[instant_q] ERROR: Specify --chr or --all for precompute mode" >&2
+    exit 1
+  fi
+
+  # Update manifest
+  {
+    echo -e "chrom\tsummary_file\ttimestamp"
+    for f in "${CACHE_DIR}"/*.local_Q_summary.*; do
+      [[ -f "$f" ]] || continue
+      chr=$(basename "$f" | sed 's/\.local_Q_summary\..*//')
+      echo -e "${chr}\t${f}\t$(date -Iseconds)"
+    done
+  } > "${CACHE_DIR}/manifest.tsv"
+
+  echo "[instant_q] Manifest updated: ${CACHE_DIR}/manifest.tsv" >&2
+  exit 0
+fi
+
+echo "[instant_q] No action specified. Use --help for usage." >&2
+exit 1

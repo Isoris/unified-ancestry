@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# =============================================================================
+# region_stats — Unified stats dispatcher (CLI, v12)
+#
+# Routes stats to the correct backend:
+#   Q-only single region → C++ instant_q binary directly
+#   Fst/dXY/MI/theta/Hp  → C region_popstats binary
+#   Hobs/HWE             → reads hobs_windower output
+#   Mixed / batch         → R dispatcher (orchestrates all backends)
+#
+# Usage:
+#   # Single region, Q only → fast C++ path
+#   region_stats --chr C_gar_LG06 --start 35000000 --end 41000000 --what Q
+#
+#   # Single region, popstats → C path
+#   region_stats --chr C_gar_LG06 --start 35e6 --end 41e6 \
+#     --what Fst,dXY,theta_pi \
+#     --groups inv:inv_samples.txt,ref:ref_samples.txt
+#
+#   # Precompute all chromosomes (C binary, per-chr)
+#   region_stats --precompute --what Fst,dXY,theta_pi --groups_from ancestry
+#
+#   # Batch from candidate table
+#   region_stats --candidates candidates.tsv --what ALL \
+#     --groups_from C01i_decomposition
+# =============================================================================
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG="${SCRIPT_DIR}/00_ancestry_config.sh"
+
+# ── Load config ──
+if [[ -f "$CONFIG" ]]; then source "$CONFIG"; fi
+
+# ── Parse args ──
+CHR="" START="" END="" WHAT="" GROUPS="" PRECOMPUTE=0 OUTDIR=""
+CANDIDATES="" GROUPS_FROM="" DOWNSAMPLE=1 TYPE=2 FIXED_WIN=""
+EXTRA=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --config)        CONFIG="$2"; source "$CONFIG"; shift 2;;
+    --chr)           CHR="$2"; shift 2;;
+    --start)         START="$2"; shift 2;;
+    --end)           END="$2"; shift 2;;
+    --what)          WHAT="$2"; shift 2;;
+    --groups)        GROUPS="$2"; shift 2;;
+    --groups_from)   GROUPS_FROM="$2"; shift 2;;
+    --precompute)    PRECOMPUTE=1; shift;;
+    --all_windows)   EXTRA+=(--all); shift;;
+    --outdir)        OUTDIR="$2"; shift 2;;
+    --candidates)    CANDIDATES="$2"; shift 2;;
+    --downsample)    DOWNSAMPLE="$2"; shift 2;;
+    --type)          TYPE="$2"; shift 2;;
+    --fixed_win)     FIXED_WIN="$2"; shift 2;;
+    -h|--help)
+      sed -n '2,/^# ====/p' "$0" | head -30
+      exit 0;;
+    *) EXTRA+=("$1"); shift;;
+  esac
+done
+
+FIXED_WIN="${FIXED_WIN:-${POPSTATS_FIXED_WIN:-50000:10000}}"
+
+# ── Quick path: Q-only single region → C++ binary directly ──
+if [[ $PRECOMPUTE -eq 0 && "$WHAT" == "Q" && -n "$CHR" && -n "$START" && -n "$END" ]]; then
+  exec "${SCRIPT_DIR}/instant_q" --config "$CONFIG" \
+    --chr "$CHR" --start "$START" --end "$END"
+fi
+
+# ── C-binary popstats path: Fst/dXY/MI/theta/Hp single region ──
+# Check if WHAT contains ONLY C-routable stats (no Q, no Hobs)
+C_STATS="Fst dXY dA MI theta_pi theta_W Tajima_D Hp"
+NEEDS_Q=0; NEEDS_HOBS=0; NEEDS_C=0
+IFS=',' read -ra WHAT_ARR <<< "$WHAT"
+for w in "${WHAT_ARR[@]}"; do
+  w=$(echo "$w" | tr -d ' ')
+  case "$w" in
+    Q) NEEDS_Q=1;;
+    Hobs|HWE) NEEDS_HOBS=1;;
+    Fst|dXY|dA|MI|theta_pi|theta_W|Tajima_D|Hp) NEEDS_C=1;;
+  esac
+done
+
+# If only C stats requested on a single region, go direct to C binary
+if [[ $PRECOMPUTE -eq 0 && $NEEDS_C -eq 1 && $NEEDS_Q -eq 0 && $NEEDS_HOBS -eq 0 \
+      && -n "$CHR" && -n "$START" && -n "$END" ]]; then
+
+  POPSTATS_BIN="${POPSTATS_BIN:-${SCRIPT_DIR}/engines/fst_dxy/region_popstats}"
+  if [[ -x "$POPSTATS_BIN" ]]; then
+    # Resolve BEAGLE
+    BGL=$(ls "${BEAGLE_DIR}"/*${CHR}*.beagle.gz 2>/dev/null | head -1)
+    [[ -n "$BGL" ]] || { echo "[region_stats] No BEAGLE for ${CHR}" >&2; exit 1; }
+
+    GROUPS_ARG=""
+    if [[ -n "$GROUPS" ]]; then
+      GROUPS_ARG="--groups ${GROUPS}"
+    fi
+
+    exec "$POPSTATS_BIN" \
+      --beagle "$BGL" \
+      --sample_list "$SAMPLE_LIST" \
+      --chr "$CHR" \
+      --range "${START}:${END}" \
+      --fixed_win "$FIXED_WIN" \
+      --downsample "$DOWNSAMPLE" \
+      --type "$TYPE" \
+      $GROUPS_ARG
+  fi
+fi
+
+# ── Precompute mode: loop over chromosomes with C binary ──
+if [[ $PRECOMPUTE -eq 1 && $NEEDS_C -eq 1 ]]; then
+  POPSTATS_BIN="${POPSTATS_BIN:-${SCRIPT_DIR}/engines/fst_dxy/region_popstats}"
+  [[ -x "$POPSTATS_BIN" ]] || {
+    anc_log "Compiling region_popstats..."
+    cd "${SCRIPT_DIR}/engines/fst_dxy" && make && cd -
+  }
+
+  POPSTATS_OUTDIR="${OUTDIR:-${STATS_CACHE_DIR:-${BASE}/unified_ancestry/region_stats_cache}}"
+  mkdir -p "$POPSTATS_OUTDIR"
+
+  # Build group spec from groups_from
+  GROUPS_ARG=""
+  SUBSETS_DIR="${HOBS_OUTDIR:-${BASE}/hobs_hwe_confirmation}/subsets"
+
+  if [[ "${GROUPS_FROM}" == "ancestry" && -d "$SUBSETS_DIR" ]]; then
+    GROUPS_SPEC=""
+    for k in $(seq 1 "${DEFAULT_K}"); do
+      SFILE="${SUBSETS_DIR}/Q${k}_full.samples"
+      [[ -f "$SFILE" ]] || continue
+      [[ -n "$GROUPS_SPEC" ]] && GROUPS_SPEC="${GROUPS_SPEC},"
+      GROUPS_SPEC="${GROUPS_SPEC}Q${k}:${SFILE}"
+    done
+    [[ -n "$GROUPS_SPEC" ]] && GROUPS_ARG="--groups ${GROUPS_SPEC}"
+  elif [[ -n "$GROUPS" ]]; then
+    GROUPS_ARG="--groups ${GROUPS}"
+  fi
+
+  mapfile -t CHROMS < <(awk '{print $1}' "$REF_FAI")
+  for CHR in "${CHROMS[@]}"; do
+    OUT_FILE="${POPSTATS_OUTDIR}/${CHR}.popstats.tsv"
+    [[ -f "$OUT_FILE" && "${FORCE:-0}" -ne 1 ]] && { echo "[region_stats] ${CHR} exists — skip"; continue; }
+
+    BGL=$(ls "${BEAGLE_DIR}"/*${CHR}*.beagle.gz 2>/dev/null | head -1)
+    [[ -n "$BGL" && -f "$BGL" ]] || continue
+
+    echo "[region_stats] ${CHR}..."
+    "$POPSTATS_BIN" \
+      --beagle "$BGL" \
+      --sample_list "$SAMPLE_LIST" \
+      --chr "$CHR" \
+      --fixed_win "$FIXED_WIN" \
+      --downsample "$DOWNSAMPLE" \
+      --type "$TYPE" \
+      --out "$OUT_FILE" \
+      $GROUPS_ARG || echo "[region_stats] WARN: ${CHR} failed"
+  done
+  echo "[region_stats] Precompute done"
+  exit 0
+fi
+
+# ── Everything else → R dispatcher ──
+RSCRIPT="${RSCRIPT_BIN:-Rscript}"
+$RSCRIPT -e '
+  source("'"${SCRIPT_DIR}/dispatchers/region_stats_dispatcher.R"'")
+  source("'"${SCRIPT_DIR}/wrappers/instant_q.R"'")
+  configure_instant_q(config_file = "'"$CONFIG"'")
+  configure_dispatcher(config_file = "'"$CONFIG"'")
+
+  chr <- "'"$CHR"'"; start <- '"${START:-0}"'; end <- '"${END:-0}"'
+  what <- strsplit("'"$WHAT"'", ",")[[1]]
+  groups_from <- "'"${GROUPS_FROM}"'"
+  candidates <- "'"${CANDIDATES}"'"
+
+  if (nzchar(candidates) && file.exists(candidates)) {
+    batch_candidate_stats(candidates, what = what,
+      groups_from = if (nzchar(groups_from)) groups_from else NULL)
+  } else if (nzchar(chr) && start > 0 && end > 0) {
+    stats <- get_region_stats(chr, start, end, what = what,
+      groups_from = if (nzchar(groups_from)) groups_from else NULL)
+    str(stats)
+  } else {
+    message("[region_stats] Specify --chr/--start/--end or --candidates")
+  }
+'
