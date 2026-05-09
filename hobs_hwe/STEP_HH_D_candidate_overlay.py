@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-04_candidate_overlay.py — Overlay Hobs/HWE windows on inversion candidates.
+STEP_HH_D_candidate_overlay.py — Overlay Hobs/HWE windows on inversion candidates.
 
 For each candidate × subset × scale, extracts overlapping windows and computes:
 - mean/median F and Hobs within interval

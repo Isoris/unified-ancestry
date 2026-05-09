@@ -86,7 +86,7 @@ done
 if [[ $PRECOMPUTE -eq 0 && $NEEDS_C -eq 1 && $NEEDS_Q -eq 0 && $NEEDS_HOBS -eq 0 \
       && -n "$CHR" && -n "$START" && -n "$END" ]]; then
 
-  POPSTATS_BIN="${POPSTATS_BIN:-${SCRIPT_DIR}/engines/fst_dxy/region_popstats}"
+  POPSTATS_BIN="${POPSTATS_BIN:-${SCRIPT_DIR}/engines/region_popstats}"
   if [[ -x "$POPSTATS_BIN" ]]; then
     # Resolve BEAGLE
     BGL=$(ls "${BEAGLE_DIR}"/*${CHR}*.beagle.gz 2>/dev/null | head -1)
@@ -111,10 +111,10 @@ fi
 
 # ── Precompute mode: loop over chromosomes with C binary ──
 if [[ $PRECOMPUTE -eq 1 && $NEEDS_C -eq 1 ]]; then
-  POPSTATS_BIN="${POPSTATS_BIN:-${SCRIPT_DIR}/engines/fst_dxy/region_popstats}"
+  POPSTATS_BIN="${POPSTATS_BIN:-${SCRIPT_DIR}/engines/region_popstats}"
   [[ -x "$POPSTATS_BIN" ]] || {
     anc_log "Compiling region_popstats..."
-    cd "${SCRIPT_DIR}/engines/fst_dxy" && make && cd -
+    make -C "${SCRIPT_DIR}/engines" region_popstats
   }
 
   POPSTATS_OUTDIR="${OUTDIR:-${STATS_CACHE_DIR:-${BASE}/unified_ancestry/region_stats_cache}}"

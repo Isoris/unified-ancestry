@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 03_compute_hobs_windows.sh — Site-level Hobs + multi-scale windows
+# STEP_HH_C_compute_hobs_windows.sh — Site-level Hobs + multi-scale windows
 #
 # For each subset × chromosome, reads ANGSD .hwe.gz and runs hobs_windower
 # to produce site-level Hobs/F and 7-scale windowed summaries.
 #
 # Usage:
-#   bash 03_compute_hobs_windows.sh <subset_id> <chromosome>
-#   bash 03_compute_hobs_windows.sh Q1_full C_gar_LG01
+#   bash STEP_HH_C_compute_hobs_windows.sh <subset_id> <chromosome>
+#   bash STEP_HH_C_compute_hobs_windows.sh Q1_full C_gar_LG01
 #
 # Or all subsets × all chromosomes:
-#   bash 03_compute_hobs_windows.sh --all
+#   bash STEP_HH_C_compute_hobs_windows.sh --all
 # =============================================================================
 set -euo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/../00_hobs_hwe_config.sh"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/00_hobs_hwe_config.sh"
 
 # ── Compile C windower if needed ──
-WINDOWER="${SCRIPT_DIR}/hobs_windower"
+ENGINES_DIR="${ENGINES_DIR:-${SCRIPT_DIR}/../engines}"
+WINDOWER="${HOBS_WINDOWER_BIN:-${ENGINES_DIR}/hobs_windower}"
 if [[ ! -x "$WINDOWER" ]]; then
   hobs_log "Compiling hobs_windower..."
-  gcc -O3 -o "$WINDOWER" "${SCRIPT_DIR}/hobs_windower.c" -lz -lm
+  make -C "$ENGINES_DIR" hobs_windower
   hobs_log "  Done: $WINDOWER"
 fi
 

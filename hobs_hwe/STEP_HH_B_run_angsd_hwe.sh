@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 02_run_angsd_hwe.sh — Run ANGSD -doHWE per subset per chromosome
+# STEP_HH_B_run_angsd_hwe.sh — Run ANGSD -doHWE per subset per chromosome
 #
 # Uses the patched ANGSD binary (Isoris/angsd_fixed_HWE) with -doHetFreq 1
 # to output hetFreq column without activating het-frequency filtering.
@@ -11,7 +11,7 @@
 # Citation: ANGSD (Korneliussen et al. 2014), patched for -doHetFreq
 # =============================================================================
 set -euo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/../00_hobs_hwe_config.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/00_hobs_hwe_config.sh"
 
 # ── Parse args ──
 SUBSET_ID="${1:-}"

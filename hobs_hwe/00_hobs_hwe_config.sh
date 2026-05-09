@@ -19,7 +19,7 @@ ANCESTRY_CONFIG="${ANCESTRY_CONFIG:-$(dirname "${BASH_SOURCE[0]}")/../00_ancestr
 [[ -f "$ANCESTRY_CONFIG" ]] && source "$ANCESTRY_CONFIG"
 
 # ── Module paths ──
-export HOBS_MODULE_DIR="${BASE}/unified_ancestry/engines/hobs_hwe"
+export HOBS_MODULE_DIR="${BASE}/unified_ancestry/hobs_hwe"
 export HOBS_OUTDIR="${BASE}/hobs_hwe_confirmation"
 
 # ── ANGSD binary (use patched version with -doHetFreq) ──

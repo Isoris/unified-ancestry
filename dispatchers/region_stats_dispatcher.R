@@ -53,7 +53,7 @@ configure_dispatcher <- function(config_file = NULL, ...) {
 
     # C binary paths
     .disp_env$popstats_bin  <- cfg$POPSTATS_BIN %||%
-      file.path(dirname(config_file), "engines", "fst_dxy", "region_popstats")
+      file.path(dirname(config_file), "engines", "region_popstats")
     .disp_env$hobs_dir      <- cfg$HOBS_OUTDIR %||%
       file.path(cfg$BASE %||% ".", "hobs_hwe_confirmation")
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-internal_ancestry_composition.py — generic interval-internal ancestry classifier.
+STEP_UA_D_internal_ancestry_composition.py — generic interval-internal ancestry classifier.
 
 Scope
 -----
@@ -48,7 +48,7 @@ Phase 7 inversion wrapper STEP_C01i_c_nested_composition.py — import:
 
 Usage (CLI, standalone)
 -----------------------
-  python3 internal_ancestry_composition.py \
+  python3 STEP_UA_D_internal_ancestry_composition.py \
     --q_cache_dir local_Q/ \
     --parents candidates.tsv \
     --outdir nested_composition/ \

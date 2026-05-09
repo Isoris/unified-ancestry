@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 01_build_subset_bamlists.sh — Generate per-group BAM lists (v12.1 REWIRED)
+# STEP_HH_A_build_subset_bamlists.sh — Generate per-group BAM lists (v12.1 REWIRED)
 #
 # v12.1 changes:
 #   1. Can accept --from-registry to build bamlists from registry groups
@@ -9,22 +9,22 @@
 #
 # Usage:
 #   # Default: build from NGSadmix ancestry clusters
-#   bash 01_build_subset_bamlists.sh
+#   bash STEP_HH_A_build_subset_bamlists.sh
 #
 #   # From registry group IDs (e.g., inversion genotype classes)
-#   bash 01_build_subset_bamlists.sh --from-registry "inv_LG05_HOM_REF,inv_LG05_HET,inv_LG05_HOM_INV"
+#   bash STEP_HH_A_build_subset_bamlists.sh --from-registry "inv_LG05_HOM_REF,inv_LG05_HET,inv_LG05_HOM_INV"
 #
 #   # From registry pattern match
-#   bash 01_build_subset_bamlists.sh --from-registry-pattern "inv_.*_HET"
+#   bash STEP_HH_A_build_subset_bamlists.sh --from-registry-pattern "inv_.*_HET"
 # =============================================================================
 set -euo pipefail
 
 # Source hobs config (which sources ancestry config)
-HOBS_CONFIG="$(dirname "${BASH_SOURCE[0]}")/../00_hobs_hwe_config.sh"
+HOBS_CONFIG="$(dirname "${BASH_SOURCE[0]}")/00_hobs_hwe_config.sh"
 if [[ -f "$HOBS_CONFIG" ]]; then
   source "$HOBS_CONFIG"
 else
-  source "$(dirname "${BASH_SOURCE[0]}")/../../00_ancestry_config.sh"
+  source "$(dirname "${BASH_SOURCE[0]}")/../00_ancestry_config.sh"
 fi
 
 # Source pipeline bridge for registry access

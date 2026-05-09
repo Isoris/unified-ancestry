@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-candidate_classifier.py — Classify inversion candidates from Q support + Engine B.
+STEP_UA_E_candidate_classifier.py — Classify inversion candidates from Q support + Engine B.
 
 For each candidate, overlaps Q support windows + Engine B per-sample Q and
 produces:
@@ -11,7 +11,7 @@ produces:
   - internal_structure_type (from nested_composition)
 
 Usage:
-  python3 candidate_classifier.py \
+  python3 STEP_UA_E_candidate_classifier.py \
     --candidates candidates.tsv \
     --q_windows snp_q_support/q_support_windows.tsv \
     --q_cache_dir local_Q/ \

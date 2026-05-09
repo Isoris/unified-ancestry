@@ -11,9 +11,9 @@
 #
 # Usage:
 #   # Build job list first
-#   bash engines/hobs_hwe/scripts/01_build_subset_bamlists.sh
+#   bash hobs_hwe/STEP_HH_A_build_subset_bamlists.sh
 #   # Then submit
-#   sbatch engines/hobs_hwe/slurm/LAUNCH_hobs_hwe.slurm
+#   sbatch launchers/LAUNCH_hobs_hwe.slurm
 # =============================================================================
 #SBATCH --job-name=hobs_hwe
 #SBATCH --account=lt200308
@@ -27,7 +27,8 @@
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "${SCRIPT_DIR}/00_hobs_hwe_config.sh"
+HOBS_DIR="${SCRIPT_DIR}/hobs_hwe"
+source "${HOBS_DIR}/00_hobs_hwe_config.sh"
 
 eval "$(conda shell.bash hook)"
 conda activate "${CONDA_ENV:-assembly}"
@@ -61,9 +62,9 @@ CHR="${CHROMS[$CHR_IDX]}"
 hobs_log "Task $SLURM_ARRAY_TASK_ID: subset=$SUBSET chr=$CHR"
 
 # ── Stage 1: ANGSD -doHWE ──
-bash "${SCRIPT_DIR}/scripts/02_run_angsd_hwe.sh" "$SUBSET" "$CHR"
+bash "${HOBS_DIR}/STEP_HH_B_run_angsd_hwe.sh" "$SUBSET" "$CHR"
 
 # ── Stage 2: Windowing ──
-bash "${SCRIPT_DIR}/scripts/03_compute_hobs_windows.sh" "$SUBSET" "$CHR"
+bash "${HOBS_DIR}/STEP_HH_C_compute_hobs_windows.sh" "$SUBSET" "$CHR"
 
 hobs_log "Done: $SUBSET / $CHR"

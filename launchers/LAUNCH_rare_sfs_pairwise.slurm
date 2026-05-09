@@ -35,10 +35,10 @@ OUTDIR="${BASE}/unified_ancestry/rare_sfs_cache"
 mkdir -p "$OUTDIR"
 
 # Build binary
-SFS_BIN="${SCRIPT_DIR}/engines/fst_dxy/rare_sfs_pairwise"
+SFS_BIN="${SCRIPT_DIR}/engines/rare_sfs_pairwise"
 if [[ ! -x "$SFS_BIN" ]]; then
   anc_log "Compiling rare_sfs_pairwise..."
-  cd "${SCRIPT_DIR}/engines/fst_dxy" && make rare_sfs_pairwise && cd -
+  make -C "${SCRIPT_DIR}/engines" rare_sfs_pairwise
 fi
 
 # Build group file from ancestry clusters

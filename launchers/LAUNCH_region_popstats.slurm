@@ -43,7 +43,7 @@ FORCE="${FORCE:-0}"
 # ── Build binary if needed ──
 if [[ ! -x "$POPSTATS_BIN" ]]; then
   anc_log "Compiling region_popstats..."
-  make -C "${SCRIPT_DIR}/engines/fst_dxy" -j "${SLURM_CPUS_PER_TASK:-4}" 2>/dev/null || true
+  make -C "${SCRIPT_DIR}/engines" region_popstats -j "${SLURM_CPUS_PER_TASK:-4}" 2>/dev/null || true
 fi
 
 # ── Map array index to chromosome ──

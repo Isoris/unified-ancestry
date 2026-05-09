@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-snp_q_support.py — Per-SNP soft support vectors to Q components.
+STEP_UA_C_snp_q_support.py — Per-SNP soft support vectors to Q components.
 
 For each SNP: Pearson |correlation| of dosage vs Q column → normalized soft weights.
 Classifies markers: dominant_single_Q | dominant_plus_secondary | mixed | diffuse | low_info.
@@ -9,14 +9,14 @@ Aggregates into windows with coherence score, switch counts, dominant Q.
 NOW reads Q from Engine B cache (instant_q output) instead of old Module 2B tables.
 
 Usage:
-  python3 snp_q_support.py \
+  python3 STEP_UA_C_snp_q_support.py \
     --beagle <file.beagle.gz> \
     --q_cache_dir local_Q/ \
     --sample_list samples.txt \
     --outdir snp_q_support/ \
     --K 8 --chr C_gar_LG01
 
-  python3 snp_q_support.py \
+  python3 STEP_UA_C_snp_q_support.py \
     --beagle <file.beagle.gz> \
     --qopt <global.qopt> \
     --sample_list samples.txt \

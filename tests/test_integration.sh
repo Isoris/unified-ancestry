@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run_integration_tests.sh — Unified Ancestry Module v12 Integration Tests
+# test_integration.sh — Unified Ancestry Module v12 Integration Tests
 #
 # Tests:
 #   T01  Compile check: all 3 C/C++ binaries
@@ -12,11 +12,11 @@
 #   T07  CLI routing: region_stats routes Fst to C binary
 #   T08  Dispatcher: cleaned R dispatcher has no F_IS/Ashman_D
 #   T09  Pipeline steps: run_full_pipeline.sh --step 8 compiles + runs
-#   T10  Plotting: 05_plot_hobs_hwe.R loads without error
+#   T10  Plotting: plots/plot_hobs_hwe.R loads without error
 #
 # Usage:
-#   bash tests/run_integration_tests.sh [--config 00_ancestry_config.sh]
-#   bash tests/run_integration_tests.sh --test T01    # single test
+#   bash tests/test_integration.sh [--config 00_ancestry_config.sh]
+#   bash tests/test_integration.sh --test T01    # single test
 #
 # Exit code: 0 if all pass, 1 if any fail.
 # =============================================================================
@@ -52,7 +52,7 @@ skip() { echo "SKIP: $*"; SKIP=$((SKIP + 1)); }
 # =============================================================================
 run_test T01 "Compile instant_q.cpp"
 if g++ -O3 -march=native -fopenmp -std=c++17 -w -o "$TMPDIR/instant_q" \
-    "${SCRIPT_DIR}/src/instant_q.cpp" -lz -fopenmp 2>"$TMPDIR/t01a.err"; then
+    "${SCRIPT_DIR}/engines/instant_q.cpp" -lz -fopenmp 2>"$TMPDIR/t01a.err"; then
   pass
 else
   fail "$(head -3 "$TMPDIR/t01a.err")"
@@ -60,7 +60,7 @@ fi
 
 run_test T01b "Compile hobs_windower.c"
 if gcc -O3 -w -o "$TMPDIR/hobs_windower" \
-    "${SCRIPT_DIR}/engines/hobs_hwe/scripts/hobs_windower.c" -lz -lm 2>"$TMPDIR/t01b.err"; then
+    "${SCRIPT_DIR}/engines/hobs_windower.c" -lz -lm 2>"$TMPDIR/t01b.err"; then
   pass
 else
   fail "$(head -3 "$TMPDIR/t01b.err")"
@@ -68,7 +68,7 @@ fi
 
 run_test T01c "Compile region_popstats.c"
 if gcc -O3 -march=native -fopenmp -w -o "$TMPDIR/region_popstats" \
-    "${SCRIPT_DIR}/engines/fst_dxy/region_popstats.c" -lz -lm -fopenmp 2>"$TMPDIR/t01c.err"; then
+    "${SCRIPT_DIR}/engines/region_popstats.c" -lz -lm -fopenmp 2>"$TMPDIR/t01c.err"; then
   pass
 else
   fail "$(head -3 "$TMPDIR/t01c.err")"
@@ -264,7 +264,7 @@ fi
 # =============================================================================
 run_test T10 "Part 12 plotting suite"
 
-PLOT="${HOBS_PLOT_R:-${SCRIPT_DIR}/engines/hobs_hwe/scripts/05_plot_hobs_hwe.R}"
+PLOT="${HOBS_PLOT_R:-${SCRIPT_DIR}/plots/plot_hobs_hwe.R}"
 if [[ -f "$PLOT" ]]; then
   MODES=0
   for m in genome_tracks heatmap outlier_burden subset_compare candidate_stack; do
@@ -284,7 +284,7 @@ fi
 # =============================================================================
 run_test T11 "No dead p_grp stack array in region_popstats.c"
 
-RPOP="${SCRIPT_DIR}/engines/fst_dxy/region_popstats.c"
+RPOP="${SCRIPT_DIR}/engines/region_popstats.c"
 if [[ -f "$RPOP" ]]; then
   if grep -q "p_grp\[MAX_GROUPS\]\[MAX_SITES\]" "$RPOP" 2>/dev/null; then
     fail "Dead p_grp[MAX_GROUPS][MAX_SITES] still present"

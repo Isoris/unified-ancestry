@@ -196,7 +196,7 @@ if [[ $START_STEP -le 8 && $END_STEP -ge 8 ]]; then
 
   if [[ ! -x "$POPSTATS_BIN" ]]; then
     anc_log "  Compiling region_popstats..."
-    make -C "${SCRIPT_DIR}/engines/fst_dxy" -j4 2>/dev/null || true
+    make -C "${SCRIPT_DIR}/engines" region_popstats -j4 2>/dev/null || true
   fi
 
   POPSTATS_OUTDIR="${STATS_CACHE_DIR:-${BASE}/unified_ancestry/region_stats_cache}"
@@ -269,7 +269,7 @@ fi
 if [[ $START_STEP -le 9 && $END_STEP -ge 9 ]]; then
   anc_log "Step 9: Hobs/HWE plotting suite..."
   PLOT_SCRIPT="$HOBS_PLOT_R"
-  HOBS_CONFIG="${SCRIPT_DIR}/engines/hobs_hwe/00_hobs_hwe_config.sh"
+  HOBS_CONFIG="${SCRIPT_DIR}/hobs_hwe/00_hobs_hwe_config.sh"
 
   if [[ -f "$PLOT_SCRIPT" && -f "$HOBS_CONFIG" ]]; then
     $RSCRIPT "$PLOT_SCRIPT" \

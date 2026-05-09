@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-export_module5b.py — Export marker/window annotation strips for Module 5B.
+STEP_UA_F_export_module5b.py — Export marker/window annotation strips for Module 5B.
 
 Reads:
   - snp_q_support/q_support_per_snp.tsv

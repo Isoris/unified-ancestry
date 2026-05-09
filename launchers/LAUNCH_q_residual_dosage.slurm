@@ -31,10 +31,10 @@ conda activate "${CONDA_ENV:-assembly}"
 mkdir -p logs
 
 # ── Build binary if needed ──
-QRES_BIN="${SCRIPT_DIR}/engines/fst_dxy/export_q_residual_dosage"
+QRES_BIN="${SCRIPT_DIR}/engines/export_q_residual_dosage"
 if [[ ! -x "$QRES_BIN" ]]; then
   anc_log "Compiling export_q_residual_dosage..."
-  cd "${SCRIPT_DIR}/engines/fst_dxy" && make export_q_residual_dosage && cd -
+  make -C "${SCRIPT_DIR}/engines" export_q_residual_dosage
 fi
 
 # ── Output directory ──

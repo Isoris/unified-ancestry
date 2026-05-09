@@ -15,7 +15,7 @@
 #   bash run_hobs_hwe.sh --step 1          # just build subsets
 #   bash run_hobs_hwe.sh --from 2 --to 3   # ANGSD + windowing
 #   bash run_hobs_hwe.sh --all             # everything (serial, slow)
-#   sbatch slurm/LAUNCH_hobs_hwe.slurm     # parallel (recommended)
+#   sbatch ../launchers/LAUNCH_hobs_hwe.slurm   # parallel (recommended)
 #
 # Citation:
 #   Hobs sliding-window concept: Claire Mérot (angsd_pipeline)
@@ -45,7 +45,7 @@ hobs_log "Steps: $START_STEP to $END_STEP"
 # Step 1
 if [[ $START_STEP -le 1 && $END_STEP -ge 1 ]]; then
   hobs_log "Step 1: Build subset BAM lists..."
-  bash "${SCRIPT_DIR}/scripts/01_build_subset_bamlists.sh"
+  bash "${SCRIPT_DIR}/STEP_HH_A_build_subset_bamlists.sh"
 fi
 
 # Step 2+3 (serial — use SLURM for parallel)
@@ -58,10 +58,10 @@ if [[ $START_STEP -le 3 && $END_STEP -ge 2 ]]; then
     [[ "$sid" == "subset_id" ]] && continue
     for chr in "${CHROMS[@]}"; do
       if [[ $START_STEP -le 2 && $END_STEP -ge 2 ]]; then
-        bash "${SCRIPT_DIR}/scripts/02_run_angsd_hwe.sh" "$sid" "$chr" || true
+        bash "${SCRIPT_DIR}/STEP_HH_B_run_angsd_hwe.sh" "$sid" "$chr" || true
       fi
       if [[ $START_STEP -le 3 && $END_STEP -ge 3 ]]; then
-        bash "${SCRIPT_DIR}/scripts/03_compute_hobs_windows.sh" "$sid" "$chr" || true
+        bash "${SCRIPT_DIR}/STEP_HH_C_compute_hobs_windows.sh" "$sid" "$chr" || true
       fi
     done
   done < "$MANIFEST"

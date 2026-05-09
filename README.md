@@ -12,21 +12,63 @@
 unified_ancestry/                                        CODE (git)
 ├── 00_ancestry_config.sh          Central config (source this everywhere)
 ├── run_ancestry.sh                Unified dispatcher
+├── run_full_pipeline.sh           End-to-end driver
 ├── instant_q                      Bash CLI for Engine B
 ├── region_stats                   Bash CLI for stats dispatcher
-├── src/
-│   ├── instant_q.cpp              C++ engine (Skotte 2013, fixed-F EM)
-│   └── Makefile                   Compile with: cd src && make
+│
+├── engines/                       All C/C++ sources + single Makefile
+│   ├── Makefile                   Build all 5 binaries: make -C engines
+│   ├── instant_q.cpp              Engine B (Skotte 2013, fixed-F EM)
+│   ├── region_popstats.c          Engine F (Fst/dXY/theta/MI)
+│   ├── rare_sfs_pairwise.c        Pairwise rare-allele SFS
+│   ├── export_q_residual_dosage.c Q-corrected residual dosage
+│   └── hobs_windower.c            Multi-scale Hobs/F windowing
+│
+├── hobs_hwe/                      Hobs/HWE sub-pipeline (HH = tag)
+│   ├── 00_hobs_hwe_config.sh
+│   ├── README_hobs_hwe.md
+│   ├── run_hobs_hwe.sh
+│   ├── STEP_HH_A_build_subset_bamlists.sh
+│   ├── STEP_HH_B_run_angsd_hwe.sh
+│   ├── STEP_HH_C_compute_hobs_windows.sh
+│   └── STEP_HH_D_candidate_overlay.py
+│
+├── launchers/                     All SLURM scripts
+│   ├── LAUNCH_instant_q_precompute.slurm   28 × K-sweep
+│   ├── LAUNCH_region_popstats.slurm
+│   ├── LAUNCH_rare_sfs_pairwise.slurm
+│   ├── LAUNCH_q_residual_dosage.slurm
+│   └── LAUNCH_hobs_hwe.slurm               280-task subset × chr array
+│
 ├── wrappers/
 │   ├── instant_q.R                R wrapper (source from any R script)
 │   └── instant_q.py               Python wrapper (import from any script)
-├── launchers/
-│   └── LAUNCH_instant_q_precompute.slurm   SLURM array: 28 × K-sweep
+│
 ├── dispatchers/
 │   └── region_stats_dispatcher.R  Unified stats dispatcher
-├── engines/                       hobs_hwe, fst_dxy C engines
-└── registries/
-    └── build_registries.py        Interval + sample-subset + cov registry
+│
+├── steps/                         Pipeline-step Python scripts (UA = tag)
+│   ├── STEP_UA_C_snp_q_support.py            run_full_pipeline Step 3
+│   ├── STEP_UA_D_internal_ancestry_composition.py     Step 4
+│   ├── STEP_UA_E_candidate_classifier.py              Step 5
+│   └── STEP_UA_F_export_module5b.py                   Step 6
+│
+├── plots/                         All plotting R scripts
+│   ├── plot_fst_dxy_tracks.R
+│   ├── plot_ld_panels.R
+│   ├── plot_rare_sfs_heatmap.R
+│   ├── plot_hobs_hwe.R
+│   ├── plot_local_Q_diagnostics.R
+│   └── theme_systems_plate.R      Shared theme helper
+│
+├── registries/
+│   └── build_registries.py        Interval + sample-subset + cov registry
+│
+├── tests/
+│   └── test_integration.sh
+│
+└── _archive/                      Backup/legacy files
+    └── instant_q.R.bk_chat17
 
 $BASE/ancestry_cache/                                    DATA (scratch, NOT in git)
 ├── K02/
@@ -70,15 +112,20 @@ tag) are still readable — the wrapper's `resolve_cache_summary()` falls
 through to them at canonical K. Manifest files auto-upgrade on the next
 write.
 
-## Step 1: Compile the C++ Engine
+## Step 1: Compile the C/C++ Engines
 
 ```bash
-cd unified_ancestry/src
-make
-# Produces: instant_q
+cd unified_ancestry
+make -C engines            # builds all 5 binaries
+# Or build a single one:
+make -C engines instant_q
+make -C engines region_popstats
+make -C engines rare_sfs_pairwise
+make -C engines export_q_residual_dosage
+make -C engines hobs_windower
 ```
 
-Requirements: `g++` with C++17, OpenMP, zlib (`-lz`).
+Requirements: `g++` with C++17, `gcc`, OpenMP, zlib (`-lz`).
 On LANTA: `module load gcc zlib` or use the conda `assembly` env.
 
 ## Step 2: Configure

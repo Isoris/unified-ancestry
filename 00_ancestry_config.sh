@@ -33,34 +33,23 @@ export REF_FAI="${REF}.fai"
 export RSCRIPT_BIN="${RSCRIPT_BIN:-/lustrefs/disk/project/lt200308-agbsci/13-programs/mambaforge/envs/assembly/bin/Rscript}"
 export CONDA_ENV="assembly"
 
-# ── Binaries (compile from src/) ─────────────────────────────────────────────
-export INSTANT_Q_BIN="${BASE}/unified_ancestry/src/instant_q"
-export POPSTATS_BIN="${BASE}/unified_ancestry/engines/fst_dxy/region_popstats"
-export HOBS_WINDOWER_BIN="${BASE}/unified_ancestry/engines/hobs_hwe/scripts/hobs_windower"
+# ── Binaries (all C/C++ sources live in engines/, build with: make -C engines) ─
+export INSTANT_Q_BIN="${BASE}/unified_ancestry/engines/instant_q"
+export POPSTATS_BIN="${BASE}/unified_ancestry/engines/region_popstats"
+export HOBS_WINDOWER_BIN="${BASE}/unified_ancestry/engines/hobs_windower"
+export QRES_BIN="${BASE}/unified_ancestry/engines/export_q_residual_dosage"
+export RARE_SFS_BIN="${BASE}/unified_ancestry/engines/rare_sfs_pairwise"
+export ENGINES_DIR="${BASE}/unified_ancestry/engines"
 
-# ── Binaries moved to Modules/MODULE_5B_inversion_followup/engines (v12.2) ──
-# These C engines feed 5B R plots (plot_ld_panels.R, 07_plot_rare_sfs_heatmap.R)
-# and were relocated from unified_ancestry/engines/fst_dxy/ to live next to
-# their consumers. See Modules/MODULE_5B_inversion_followup/engines/Makefile.
-export QRES_BIN="${BASE}/Modules/MODULE_5B_inversion_followup/engines/export_q_residual_dosage"
-export RARE_SFS_BIN="${BASE}/Modules/MODULE_5B_inversion_followup/engines/rare_sfs_pairwise"
-export MODULE_5B_ENGINES_DIR="${BASE}/Modules/MODULE_5B_inversion_followup/engines"
-
-# ── Cross-module Python / R scripts (v12.2) ─────────────────────────────────
-# Ancestry-driven candidate analysis/classification moved to MODULE_5A:
-export SNP_Q_SUPPORT_PY="${BASE}/Modules/MODULE_5A_inversion_discovery/analysis/snp_q_support.py"
-# Ancestry composition engine: single source of truth at the repo path below.
-# (Previously pointed at MODULE_5A_inversion_discovery which no longer carries
-#  this file; dedup pass 2026-04-24, see docs/NESTED_VS_COMPOSITE.md.)
-# The engine file is also imported as a library by
-# inversion_modules/phase_7_karyotype_groups/proposal/STEP_C01i_c_nested_composition.py
-# via ANCESTRY_ENGINE_DIR — this variable is the CLI-standalone path.
-export NESTED_COMPOSITION_PY="${BASE}/unified_ancestry/engines/nested_composition/internal_ancestry_composition.py"
-export CANDIDATE_CLASSIFIER_PY="${BASE}/Modules/MODULE_5A_inversion_discovery/classification/candidate_classifier.py"
-# Inversion followup utilities / figures moved to MODULE_5B:
-export EXPORT_MODULE5B_PY="${BASE}/Modules/MODULE_5B_inversion_followup/utils/export_module5b.py"
-export HOBS_CANDIDATE_OVERLAY_PY="${BASE}/Modules/MODULE_5B_inversion_followup/analysis/04_candidate_overlay.py"
-export HOBS_PLOT_R="${BASE}/Modules/MODULE_5B_inversion_followup/figures/05_plot_hobs_hwe.R"
+# ── Pipeline-step Python scripts (steps/) and plots (plots/) ────────────────
+# Steps follow STEP_<TAG>_<LETTER>_<purpose>.py convention.
+# UA = Unified Ancestry main pipeline. HH = Hobs/HWE sub-pipeline.
+export SNP_Q_SUPPORT_PY="${BASE}/unified_ancestry/steps/STEP_UA_C_snp_q_support.py"
+export NESTED_COMPOSITION_PY="${BASE}/unified_ancestry/steps/STEP_UA_D_internal_ancestry_composition.py"
+export CANDIDATE_CLASSIFIER_PY="${BASE}/unified_ancestry/steps/STEP_UA_E_candidate_classifier.py"
+export EXPORT_MODULE5B_PY="${BASE}/unified_ancestry/steps/STEP_UA_F_export_module5b.py"
+export HOBS_CANDIDATE_OVERLAY_PY="${BASE}/unified_ancestry/hobs_hwe/STEP_HH_D_candidate_overlay.py"
+export HOBS_PLOT_R="${BASE}/unified_ancestry/plots/plot_hobs_hwe.R"
 
 # ── Cross-module wiring (v12.1) ─────────────────────────────────────────────
 export SAMPLES_IND="${BASE}/het_roh/01_inputs_check/samples.ind"
