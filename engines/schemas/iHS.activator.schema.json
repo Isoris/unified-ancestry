@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "iHS.activator.schema.json",
+  "title": "iHS activator (request)",
+  "description": "JSON request the popstats client posts to invoke an iHS compute. Single-cohort EHH-based selection scan (Voight 2006 framing), diploid-IBS approximation from BEAGLE GLs.",
+  "type": "object",
+  "required": ["statistic", "inputs", "scope"],
+  "additionalProperties": false,
+  "properties": {
+    "statistic": { "type": "string", "const": "iHS" },
+    "version":   { "type": "string", "default": "iHS_v1" },
+    "request_id":{ "type": "string" },
+
+    "inputs": {
+      "type": "object",
+      "required": ["beagle", "sample_list"],
+      "additionalProperties": false,
+      "properties": {
+        "beagle":      { "type": "string", "description": "BEAGLE GL. Allele 0 treated as ancestral by default; pre-polarize against an outgroup if available." },
+        "sample_list": { "type": "string" },
+        "cohort":      { "type": "string", "description": "Optional. One sample ID per line. Default: all samples." }
+      }
+    },
+
+    "scope": {
+      "type": "object",
+      "required": ["chrom", "windows"],
+      "additionalProperties": false,
+      "properties": {
+        "chrom": { "type": "string" },
+        "windows": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["mode", "size_bp", "step_bp"],
+              "properties": {
+                "mode":    { "type": "string", "const": "fixed_bp" },
+                "size_bp": { "type": "integer", "minimum": 1 },
+                "step_bp": { "type": "integer", "minimum": 1 }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["mode", "bed_path"],
+              "properties": {
+                "mode":     { "type": "string", "const": "bed" },
+                "bed_path": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      }
+    },
+
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ehh_decay":       { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.05 },
+        "max_distance_bp": { "type": "integer", "minimum": 1, "default": 1000000 },
+        "gl_threshold":    { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.6,
+                              "description": "Minimum max-GL for a confident HOM_REF/HOM_ALT call at the focal." },
+        "min_n_anc":       { "type": "integer", "minimum": 2, "default": 8,
+                              "description": "Skip focal if ancestral-allele subcohort size < this." },
+        "min_n_der":       { "type": "integer", "minimum": 2, "default": 8 },
+        "min_freq":        { "type": "number", "minimum": 0.0, "maximum": 0.5, "default": 0.05,
+                              "description": "Skip focals with minor-allele frequency < this." },
+        "n_freq_bins":     { "type": "integer", "minimum": 2, "default": 20,
+                              "description": "Bins for derived-allele-frequency-binned norm." },
+        "focal_step":      { "type": "integer", "minimum": 1, "default": 1 }
+      }
+    },
+
+    "compute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "ncores": { "type": "integer", "minimum": 1, "default": 1 } }
+    }
+  },
+  "engine_binding": {
+    "binary": "engines/iHS",
+    "cli_flag_map": {
+      "inputs.beagle":           "--beagle",
+      "inputs.sample_list":      "--sample_list",
+      "inputs.cohort":           "--cohort",
+      "scope.chrom":             "--chr",
+      "scope.windows.size_bp":   "--fixed_win <size>:<step>",
+      "scope.windows.step_bp":   "--fixed_win <size>:<step>",
+      "scope.windows.bed_path":  "--windows",
+      "params.ehh_decay":        "--ehh_decay",
+      "params.max_distance_bp":  "--max_distance_bp",
+      "params.gl_threshold":     "--gl_threshold",
+      "params.min_n_anc":        "--min_n_anc",
+      "params.min_n_der":        "--min_n_der",
+      "params.min_freq":         "--min_freq",
+      "params.n_freq_bins":      "--n_freq_bins",
+      "params.focal_step":       "--focal_step",
+      "compute.ncores":          "--ncores"
+    }
+  }
+}

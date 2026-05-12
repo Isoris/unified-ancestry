@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "popstats_server.activator.schema.json",
+  "title": "popstats server activator (umbrella)",
+  "description": "Single entry-point schema for the popstats local server. Clients post a JSON document conforming to this schema; the dispatcher routes by the `statistic` discriminator to the appropriate per-statistic activator schema and engine.",
+  "type": "object",
+  "required": ["statistic"],
+  "discriminator": { "propertyName": "statistic" },
+  "oneOf": [
+    { "$ref": "xpehh.activator.schema.json" },
+    { "$ref": "iHS.activator.schema.json" }
+  ],
+  "supported_statistics": [
+    "xpehh",
+    "iHS"
+  ],
+  "planned_statistics_not_yet_specced": [
+    "fst", "pi", "dxy", "dA", "tajima_D",
+    "pi_NS", "pi_4fold", "pi_0fold",
+    "fdM", "fst_outlier_scan", "region_test", "ultrabootstrap"
+  ],
+  "dispatcher_contract": {
+    "validate_step": "JSON Schema validate against this umbrella schema; reject with HTTP 400 + the schema validation error if invalid.",
+    "route_step":   "Read `statistic`; load the matching engine binding from the per-statistic activator schema's `engine_binding` block; map activator fields to CLI flags.",
+    "execute_step": "Run the engine binary; capture TSV stdout + JSON-metadata header (the '# schema_version=...' line).",
+    "wrap_step":    "Build the extractor JSON from the TSV by reading the header to populate `metadata` and each row to populate one item in `windows`.",
+    "respond_step": "Return the extractor JSON. status='ok' on success, 'empty' when no windows produced (e.g. all filtered), 'error' on engine failure (with `error` field populated)."
+  }
+}

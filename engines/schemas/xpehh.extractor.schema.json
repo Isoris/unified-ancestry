@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "xpehh.extractor.schema.json",
+  "title": "xpehh extractor (response)",
+  "description": "JSON response shape the popstats server returns for an XP-EHH compute. The dispatcher builds this from the TSV emitted by engines/xpehh.",
+  "type": "object",
+  "required": ["schema_version", "statistic", "status", "metadata", "windows"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "xpehh_v1" },
+    "statistic":      { "type": "string", "const": "xpehh" },
+    "request_id":     { "type": "string", "description": "Echoed from the activator if supplied." },
+    "status":         { "type": "string", "enum": ["ok", "empty", "error"] },
+    "error":          { "type": "string", "description": "Present only when status == 'error'." },
+
+    "metadata": {
+      "type": "object",
+      "required": ["chrom", "n_test", "n_ref", "ehh_decay", "max_distance_bp",
+                   "focal_step", "n_focal_total", "n_focal_with_xpehh",
+                   "global_mean", "global_sd"],
+      "additionalProperties": false,
+      "properties": {
+        "chrom":              { "type": "string" },
+        "n_test":             { "type": "integer" },
+        "n_ref":              { "type": "integer" },
+        "ehh_decay":          { "type": "number" },
+        "max_distance_bp":    { "type": "integer" },
+        "focal_step":         { "type": "integer" },
+        "n_focal_total":      { "type": "integer", "description": "Focal SNPs visited." },
+        "n_focal_with_xpehh": { "type": "integer", "description": "Focals where both iHH_test and iHH_ref were finite and positive." },
+        "global_mean":        { "type": "number", "description": "Mean of raw XP-EHH across all focals with values; used for norm_xpehh." },
+        "global_sd":          { "type": "number" },
+        "engine_version":     { "type": "string", "description": "Optional engine git ref / version string." },
+        "approximation_note": { "type": "string", "default": "Diploid-IBS-likelihood approximation of XP-EHH from unphased BEAGLE GLs. NOT Sabeti-strict; phasing recommended for reviewer-grade values." }
+      }
+    },
+
+    "windows": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Window" }
+    }
+  },
+  "definitions": {
+    "Window": {
+      "type": "object",
+      "required": ["chrom", "window_start", "window_end",
+                   "n_focal", "n_focal_with_xpehh",
+                   "iHH_test_mean", "iHH_ref_mean",
+                   "xpehh_mean", "xpehh_max_abs",
+                   "norm_xpehh_mean", "norm_xpehh_max_abs"],
+      "additionalProperties": false,
+      "properties": {
+        "chrom":               { "type": "string" },
+        "window_start":        { "type": "integer" },
+        "window_end":          { "type": "integer" },
+        "n_focal":             { "type": "integer", "description": "Focal SNPs whose position falls in this window." },
+        "n_focal_with_xpehh":  { "type": "integer", "description": "Subset of n_focal where XP-EHH was finite." },
+        "iHH_test_mean":       { "type": ["number", "null"], "description": "Mean iHH (∫ EHH dd) of the test cohort across in-window focals. null when n_focal_with_xpehh == 0." },
+        "iHH_ref_mean":        { "type": ["number", "null"] },
+        "xpehh_mean":          { "type": ["number", "null"], "description": "Mean ln(iHH_test/iHH_ref). null when n=0." },
+        "xpehh_max_abs":       { "type": ["number", "null"] },
+        "norm_xpehh_mean":     { "type": ["number", "null"], "description": "Mean z-scored XP-EHH (against global mean/sd from metadata)." },
+        "norm_xpehh_max_abs":  { "type": ["number", "null"] }
+      }
+    }
+  },
+  "sign_convention": "positive XP-EHH = test cohort has longer extended haplotype homozygosity than ref cohort at the focal."
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "popstats_server.extractor.schema.json",
+  "title": "popstats server extractor (umbrella)",
+  "description": "Single extractor envelope for any popstats server response. Discriminated by the `statistic` field — the body of `metadata` and `windows` is per-statistic and validated against the corresponding per-statistic extractor schema.",
+  "type": "object",
+  "required": ["schema_version", "statistic", "status"],
+  "discriminator": { "propertyName": "statistic" },
+  "oneOf": [
+    { "$ref": "xpehh.extractor.schema.json" },
+    { "$ref": "iHS.extractor.schema.json" }
+  ],
+  "common_fields_in_all_responses": {
+    "schema_version": "Engine version tag (e.g. 'xpehh_v1'). Used by clients to opt into known shapes.",
+    "statistic":      "Discriminator; matches the activator's `statistic`.",
+    "request_id":     "Echoed from the activator if supplied.",
+    "status":         "One of 'ok' / 'empty' / 'error'. 'empty' = engine ran but produced no windows (e.g. cohort filter dropped everything).",
+    "error":          "Present only when status == 'error'.",
+    "metadata":       "Per-statistic header bag (engine name, n_samples, threshold params, global stats).",
+    "windows":        "Array of per-window records, ordered by chrom + window_start ascending."
+  },
+  "status_codes": {
+    "ok":    "windows array present and non-empty.",
+    "empty": "windows array present but length 0; check metadata for why (filters too strict, cohort too small, etc.).",
+    "error": "engine failed or activator was malformed; `error` field carries the message."
+  }
+}

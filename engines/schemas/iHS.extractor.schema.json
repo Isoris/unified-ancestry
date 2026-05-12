@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "iHS.extractor.schema.json",
+  "title": "iHS extractor (response)",
+  "description": "JSON response shape the popstats server returns for an iHS compute.",
+  "type": "object",
+  "required": ["schema_version", "statistic", "status", "metadata", "windows"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "iHS_v1" },
+    "statistic":      { "type": "string", "const": "iHS" },
+    "request_id":     { "type": "string" },
+    "status":         { "type": "string", "enum": ["ok", "empty", "error"] },
+    "error":          { "type": "string" },
+
+    "metadata": {
+      "type": "object",
+      "required": ["chrom", "n_cohort", "ehh_decay", "max_distance_bp",
+                   "gl_threshold", "min_freq", "n_freq_bins", "focal_step",
+                   "n_focal_total", "n_focal_with_iHS"],
+      "additionalProperties": false,
+      "properties": {
+        "chrom":            { "type": "string" },
+        "n_cohort":         { "type": "integer" },
+        "ehh_decay":        { "type": "number" },
+        "max_distance_bp":  { "type": "integer" },
+        "gl_threshold":     { "type": "number" },
+        "min_freq":         { "type": "number" },
+        "n_freq_bins":      { "type": "integer" },
+        "focal_step":       { "type": "integer" },
+        "n_focal_total":    { "type": "integer" },
+        "n_focal_with_iHS": { "type": "integer" },
+        "freq_bin_stats":   {
+          "type": "array",
+          "description": "Optional per-bin mean/sd used for normalization (filled when dispatcher requests it).",
+          "items": {
+            "type": "object",
+            "required": ["bin", "n", "mean", "sd"],
+            "properties": {
+              "bin":  { "type": "integer" },
+              "n":    { "type": "integer" },
+              "mean": { "type": "number" },
+              "sd":   { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "ancestral_polarization": { "type": "string", "default": "allele_0_assumed_ancestral",
+                                     "description": "How ancestral state was determined for the focal partition." },
+        "engine_version":         { "type": "string" },
+        "approximation_note":     { "type": "string", "default": "Diploid-IBS-likelihood approximation. Voight-strict iHS needs phasing." }
+      }
+    },
+
+    "windows": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Window" }
+    }
+  },
+  "definitions": {
+    "Window": {
+      "type": "object",
+      "required": ["chrom", "window_start", "window_end",
+                   "n_focal", "n_focal_with_iHS",
+                   "iHH_anc_mean", "iHH_der_mean",
+                   "iHS_mean", "iHS_max_abs",
+                   "norm_iHS_mean", "norm_iHS_max_abs",
+                   "n_extreme_iHS_abs_gt_2"],
+      "additionalProperties": false,
+      "properties": {
+        "chrom":                { "type": "string" },
+        "window_start":         { "type": "integer" },
+        "window_end":           { "type": "integer" },
+        "n_focal":              { "type": "integer" },
+        "n_focal_with_iHS":     { "type": "integer" },
+        "iHH_anc_mean":         { "type": ["number", "null"] },
+        "iHH_der_mean":         { "type": ["number", "null"] },
+        "iHS_mean":             { "type": ["number", "null"], "description": "Mean of ln(iHH_anc / iHH_der) across in-window focals." },
+        "iHS_max_abs":          { "type": ["number", "null"] },
+        "norm_iHS_mean":        { "type": ["number", "null"], "description": "Mean iHS after derived-allele-freq-binned normalization." },
+        "norm_iHS_max_abs":     { "type": ["number", "null"] },
+        "n_extreme_iHS_abs_gt_2": { "type": "integer", "description": "Count of in-window focals with |norm_iHS| > 2 (top/bottom 2.5% under normal approx)." }
+      }
+    }
+  },
+  "sign_convention": "negative iHS = derived allele has longer EHH than ancestral → potential recent positive selection on derived. Allele 0 in BEAGLE is treated as ancestral by default."
+}
