@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "codon_stats.input.schema.json",
+  "title": "codon_stats input — aligned CDS pair",
+  "description": "Logical record consumed by codon_stats. Two physical formats are accepted: TSV (--pairs) and multi-FASTA (--fasta). Both encode the same record: a pair_id and two equal-length aligned coding sequences over alphabet {A,C,G,T,-}; ambiguity codes are tolerated but those codons are skipped.",
+  "type": "object",
+  "required": ["pair_id", "seqA", "seqB"],
+  "properties": {
+    "pair_id": {
+      "type": "string",
+      "description": "Identifier for the pair (e.g. orthologue group id, gene id). In FASTA mode, derived from the first header by stripping trailing _A/_B/_a/_b/_1/_2."
+    },
+    "seqA": {
+      "type": "string",
+      "pattern": "^[ACGTacgtNn\\-]+$",
+      "description": "Aligned CDS, length must be a multiple of 3 ideally; trailing partial codon is dropped. Same length as seqB."
+    },
+    "seqB": {
+      "type": "string",
+      "pattern": "^[ACGTacgtNn\\-]+$",
+      "description": "Aligned CDS, same length as seqA."
+    }
+  },
+  "physical_formats": {
+    "tsv": {
+      "description": "Plain TSV passed via --pairs. Optional header row starting with 'pair_id'. Lines starting with '#' are skipped.",
+      "columns": ["pair_id", "seqA", "seqB"],
+      "example_lines": [
+        "pair_id\tseqA\tseqB",
+        "ENSG000000001\tATGAAA...\tATGAAC..."
+      ]
+    },
+    "fasta": {
+      "description": "Multi-FASTA passed via --fasta. Sequences are taken as consecutive (A,B) pairs in file order. pair_id = first header minus the standard A/B/1/2 suffix.",
+      "example_lines": [
+        ">ENSG000000001_A",
+        "ATGAAA...",
+        ">ENSG000000001_B",
+        "ATGAAC..."
+      ]
+    }
+  }
+}

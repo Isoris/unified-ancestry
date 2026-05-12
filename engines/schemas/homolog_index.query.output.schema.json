@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "homolog_index.query.output.schema.json",
+  "title": "homolog_index_query output",
+  "description": "Output of a single gene lookup. Available in TSV (default) or JSON (--format json). Both encodings carry the same per-hit fields.",
+  "tsv_columns_in_order": [
+    "query", "target", "source_label", "source_type",
+    "identity", "bitscore", "evalue",
+    "qstart", "qend", "tstart", "tend",
+    "alnlen", "n_segments", "strand"
+  ],
+  "tsv_no_match_behaviour": "When the gene is not in the index: only the header line is emitted (unless --no_header). Exit code remains 0.",
+  "json_response": {
+    "type": "object",
+    "required": ["query", "found", "hits"],
+    "properties": {
+      "query":            { "type": "string", "description": "Gene id as supplied to --gene." },
+      "found":            { "type": "boolean" },
+      "n_hits_total":     { "type": "integer", "description": "Hits in the index for this gene before filtering. Present only when found=true." },
+      "n_hits":           { "type": "integer", "description": "Present (=0) when found=false." },
+      "n_hits_emitted":   { "type": "integer", "description": "Hits actually written to `hits` after --source / --min_identity / --min_bitscore / --limit filtering. Present only when found=true." },
+      "hits":             { "type": "array", "items": { "$ref": "#/definitions/Hit" } }
+    }
+  },
+  "definitions": {
+    "Hit": {
+      "type": "object",
+      "required": ["target", "source_label", "source_type", "identity",
+                   "bitscore", "evalue", "qstart", "qend", "tstart", "tend",
+                   "alnlen", "n_segments", "strand"],
+      "properties": {
+        "target":        { "type": "string", "description": "Subject id (DIAMOND) or contig name (miniprot)." },
+        "source_label":  { "type": "string", "description": "Source label assigned at build time (e.g. species name)." },
+        "source_type":   { "type": "string", "enum": ["diamond", "miniprot", "unknown"] },
+        "identity":      { "type": "number", "description": "Fractional 0..1." },
+        "bitscore":      { "type": "number", "description": "-1 if not available (miniprot without ms:i:/AS:i: tag)." },
+        "evalue":        { "type": "number", "description": "-1 if not available (miniprot)." },
+        "qstart":        { "type": "integer" },
+        "qend":          { "type": "integer" },
+        "tstart":        { "type": "integer" },
+        "tend":          { "type": "integer" },
+        "alnlen":        { "type": "integer" },
+        "n_segments":    { "type": "integer" },
+        "strand":        { "type": "string", "enum": ["+", "-", "."] }
+      }
+    }
+  },
+  "filtering_flags": {
+    "--source diamond|miniprot": "Keep only hits from this source type.",
+    "--min_identity F":           "Keep only hits with identity >= F (fractional 0..1).",
+    "--min_bitscore F":           "Keep only hits with bitscore >= F.",
+    "--limit N":                  "Stop emitting after N hits. Combined with sort order (bitscore desc) gives top-N."
+  },
+  "sort_order_note": "Within a gene, hits are pre-sorted at build time by bitscore descending, then identity descending. --limit N therefore returns the top-N by bitscore."
+}

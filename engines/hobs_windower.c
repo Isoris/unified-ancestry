@@ -35,6 +35,9 @@
 
 #define MAX_SITES 5000000
 #define MAX_SCALES 10
+#define MAX_GROUPS 8
+
+#define SCHEMA_VERSION "hobs_windower_v2"
 
 typedef struct {
     int pos;
@@ -51,6 +54,48 @@ typedef struct {
     int win_bp;
     int step_bp;
 } Scale;
+
+typedef struct {
+    char label[64];
+    Site* sites;
+    int n_sites;
+} GroupHwe;
+
+// Load .hwe.gz into a dynamically-allocated Site array.
+// Returns number of sites loaded (0 on failure).
+static int load_hwe_file(const char* path, Site** out_sites, char* chrom_out, int chrom_out_sz) {
+    Site* arr = (Site*)malloc(MAX_SITES * sizeof(Site));
+    if (!arr) return 0;
+    gzFile gz = gzopen(path, "rb");
+    if (!gz) { free(arr); fprintf(stderr, "Cannot open %s\n", path); return 0; }
+    char line[4096];
+    gzgets(gz, line, sizeof(line)); // skip header
+    int n = 0;
+    while (gzgets(gz, line, sizeof(line)) && n < MAX_SITES) {
+        char chr[128]; int pos; char major, minor;
+        double hweFreq, freq, F_val, lrt, pval, hetFreq = -1;
+        int nf = sscanf(line, "%s %d %c %c %lf %lf %lf %lf %lf %lf",
+                        chr, &pos, &major, &minor,
+                        &hweFreq, &freq, &F_val, &lrt, &pval, &hetFreq);
+        if (nf < 9) continue;
+        if (chrom_out && chrom_out[0] == 0)
+            strncpy(chrom_out, chr, chrom_out_sz - 1);
+        Site* s = &arr[n];
+        s->pos = pos;
+        s->hweFreq = hweFreq;
+        s->freq = freq;
+        s->F = F_val;
+        s->pval = pval;
+        s->Hexp = 2.0 * hweFreq * (1.0 - hweFreq);
+        s->Hobs = s->Hexp * (1.0 - F_val);
+        if (s->Hobs < 0) s->Hobs = 0;
+        if (s->Hobs > 1) s->Hobs = 1;
+        n++;
+    }
+    gzclose(gz);
+    *out_sites = arr;
+    return n;
+}
 
 // ── Comparison for qsort (median) ──
 int cmp_double(const void* a, const void* b) {
@@ -77,8 +122,16 @@ double mad_sorted(double* arr, int n) {
 
 int main(int argc, char** argv) {
     if (argc < 4) {
-        fprintf(stderr, "Usage: hobs_windower <input.hwe.gz> <output_prefix> <chrom_size> "
-                "[--scales 5kb:5000:1000,...] [--mad_n 3.0]\n");
+        fprintf(stderr,
+            "Usage: hobs_windower <input.hwe.gz> <output_prefix> <chrom_size>\n"
+            "    [--scales 5kb:5000:1000,...] [--mad_n 3.0]\n"
+            "    [--groups g1:f1.hwe.gz,g2:f2.hwe.gz[,g3:f3.hwe.gz]]\n"
+            "\n"
+            "  --groups   Per-arrangement-group .hwe.gz files (one per group).\n"
+            "             Each per-scale output gains Hobs_<g> and n_<g> columns alongside\n"
+            "             the cohort Hobs. Group .hwe.gz files come from running ANGSD HWE\n"
+            "             on a BAM subset (e.g. HOM_A, HET, HOM_B fish). Sample counts vary\n"
+            "             per window with GL coverage; n_<g> is per-window.\n");
         return 1;
     }
 
@@ -95,6 +148,7 @@ int main(int argc, char** argv) {
         "1Mb:1000000:200000"
     };
     double mad_n = 3.0;
+    const char* groups_spec = NULL;
 
     // Parse optional args
     for (int i = 4; i < argc; i++) {
@@ -110,6 +164,10 @@ int main(int argc, char** argv) {
             }
         } else if (!strcmp(argv[i], "--mad_n") && i+1 < argc) {
             mad_n = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--groups") && i+1 < argc) {
+            groups_spec = argv[++i];
+        } else if (!strcmp(argv[i], "--input_format") && i+1 < argc) {
+            ++i; // accepted for forward compat; hobs_windower reads ANGSD .hwe.gz
         }
     }
 
@@ -172,8 +230,33 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[hobs_windower] %d sites from %s (chrom=%s)\n",
             n_sites, infile, chrom_name);
 
+    // Per-group .hwe.gz loading (optional).
+    GroupHwe groups[MAX_GROUPS];
+    int n_groups = 0;
+    if (groups_spec) {
+        char spec_copy[4096];
+        strncpy(spec_copy, groups_spec, sizeof(spec_copy)-1);
+        spec_copy[sizeof(spec_copy)-1] = 0;
+        char* tok = strtok(spec_copy, ",");
+        while (tok && n_groups < MAX_GROUPS) {
+            char* colon = strchr(tok, ':');
+            if (!colon) { tok = strtok(NULL, ","); continue; }
+            *colon = 0;
+            strncpy(groups[n_groups].label, tok, 63);
+            groups[n_groups].label[63] = 0;
+            char chr_buf[128] = "";
+            int ng = load_hwe_file(colon + 1, &groups[n_groups].sites, chr_buf, sizeof(chr_buf));
+            groups[n_groups].n_sites = ng;
+            fprintf(stderr, "[hobs_windower] Group %s: %d sites from %s\n",
+                    groups[n_groups].label, ng, colon + 1);
+            n_groups++;
+            tok = strtok(NULL, ",");
+        }
+    }
+
     if (n_sites == 0) {
         free(sites);
+        for (int g = 0; g < n_groups; g++) free(groups[g].sites);
         return 0;
     }
 
@@ -223,6 +306,8 @@ int main(int argc, char** argv) {
     double* buf_Hobs = (double*)malloc(n_sites * sizeof(double));
     double* buf_F = (double*)malloc(n_sites * sizeof(double));
 
+    int g_si[MAX_GROUPS] = {0};
+
     for (int sc = 0; sc < n_scales; sc++) {
         int win = scales[sc].win_bp;
         int step = scales[sc].step_bp;
@@ -231,15 +316,21 @@ int main(int argc, char** argv) {
         snprintf(out_path, sizeof(out_path), "%s.win%s.tsv", prefix, scales[sc].label);
         FILE* fout = fopen(out_path, "w");
 
+        fprintf(fout, "# schema_version=%s\n", SCHEMA_VERSION);
         fprintf(fout, "chrom\twindow_start\twindow_end\twindow_center\tn_sites\t"
                 "mean_Hobs\tmedian_Hobs\tsd_Hobs\tmin_Hobs\tmax_Hobs\t"
                 "mean_F\tmedian_F\tsd_F\tmin_F\tmax_F\t"
                 "n_low_Hobs_outlier\tn_high_Hobs_outlier\t"
                 "n_low_F_outlier\tn_high_F_outlier\t"
                 "frac_low_Hobs_outlier\tfrac_high_Hobs_outlier\t"
-                "frac_low_F_outlier\tfrac_high_F_outlier\n");
+                "frac_low_F_outlier\tfrac_high_F_outlier");
+        for (int g = 0; g < n_groups; g++)
+            fprintf(fout, "\tHobs_%s\tn_%s", groups[g].label, groups[g].label);
+        fprintf(fout, "\n");
 
         int si = 0; // site index pointer
+        for (int g = 0; g < n_groups; g++) g_si[g] = 0;
+
         for (int wstart = 1; wstart <= chrom_size; wstart += step) {
             int wend = wstart + win - 1;
             if (wend > chrom_size) wend = chrom_size;
@@ -285,7 +376,7 @@ int main(int argc, char** argv) {
                     "%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t"
                     "%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t"
                     "%d\t%d\t%d\t%d\t"
-                    "%.4f\t%.4f\t%.4f\t%.4f\n",
+                    "%.4f\t%.4f\t%.4f\t%.4f",
                     chrom_name, wstart, wend, wcenter, n,
                     mean_h, median_sorted(buf_Hobs, n), sd_h,
                     buf_Hobs[0], buf_Hobs[n-1],
@@ -294,6 +385,25 @@ int main(int argc, char** argv) {
                     n_lo_h, n_hi_h, n_lo_f, n_hi_f,
                     (double)n_lo_h/n, (double)n_hi_h/n,
                     (double)n_lo_f/n, (double)n_hi_f/n);
+
+            // Per-group columns: mean Hobs and n in same window
+            for (int g = 0; g < n_groups; g++) {
+                Site* gs = groups[g].sites;
+                int gn = groups[g].n_sites;
+                int* gsi = &g_si[g];
+                while (*gsi > 0 && gs[*gsi - 1].pos >= wstart) (*gsi)--;
+                while (*gsi < gn && gs[*gsi].pos < wstart) (*gsi)++;
+                int cnt = 0; double sum = 0;
+                for (int j = *gsi; j < gn && gs[j].pos <= wend; j++) {
+                    sum += gs[j].Hobs;
+                    cnt++;
+                }
+                double mean = cnt > 0 ? sum / cnt : 0.0/0.0;
+                if (cnt > 0) fprintf(fout, "\t%.6f\t%d", mean, cnt);
+                else         fprintf(fout, "\tNA\t0");
+            }
+
+            fputc('\n', fout);
         }
         fclose(fout);
         fprintf(stderr, "[hobs_windower] Wrote %s\n", out_path);
@@ -302,5 +412,6 @@ int main(int argc, char** argv) {
     free(buf_Hobs);
     free(buf_F);
     free(sites);
+    for (int g = 0; g < n_groups; g++) free(groups[g].sites);
     return 0;
 }

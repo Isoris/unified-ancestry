@@ -21,7 +21,8 @@ LDFLAGS  = -lz -lm -fopenmp
 PREFIX  ?= $(HOME)/.local
 
 CPP_BINS = instant_q
-C_BINS   = region_popstats rare_sfs_pairwise export_q_residual_dosage hobs_windower
+C_BINS   = region_popstats rare_sfs_pairwise export_q_residual_dosage hobs_windower \
+           codon_stats homolog_index_build homolog_index_query homolog_atlas_server
 ALL_BINS = $(CPP_BINS) $(C_BINS)
 
 all: $(ALL_BINS)
@@ -40,6 +41,18 @@ export_q_residual_dosage: export_q_residual_dosage.c
 
 hobs_windower: hobs_windower.c
 	$(CC) -O3 -o $@ $< -lz -lm
+
+codon_stats: codon_stats.c
+	$(CC) $(CFLAGS) -o $@ $< -lm -fopenmp
+
+homolog_index_build: homolog_index_build.c homolog_index.h
+	$(CC) -O3 -march=native -Wall -o $@ $<
+
+homolog_index_query: homolog_index_query.c homolog_index.h
+	$(CC) -O3 -march=native -Wall -o $@ $<
+
+homolog_atlas_server: homolog_atlas_server.c homolog_index.h
+	$(CC) -O3 -march=native -Wall -o $@ $< -lpthread
 
 install: $(ALL_BINS)
 	mkdir -p $(PREFIX)/bin

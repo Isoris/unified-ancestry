@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "homolog_index.binary.schema.json",
+  "title": "homolog_index binary file format (.holindx)",
+  "description": "Mmap-friendly flat binary written by homolog_index_build and read by homolog_index_query. All multi-byte integers and floats are little-endian. Structs are __attribute__((packed)) so byte offsets are exact (no padding). Layout: [Header][GeneRecord×n_genes][HitRecord×n_hits][string_pool].",
+  "magic": {
+    "value_hex": "0x0158444E494C4F48",
+    "ascii_le": "HOLINDX\\x01",
+    "description": "First 8 bytes of file."
+  },
+  "version": 1,
+  "byte_order": "little-endian",
+  "structs": {
+    "IndexHeader": {
+      "size_bytes": 80,
+      "fields_in_order": [
+        { "name": "magic",              "type": "uint64", "doc": "Must equal HOLINDX_MAGIC." },
+        { "name": "version",            "type": "uint32" },
+        { "name": "n_genes",            "type": "uint32" },
+        { "name": "n_hits",             "type": "uint64" },
+        { "name": "string_pool_size",   "type": "uint64", "doc": "Bytes in the string pool (after the hit array)." },
+        { "name": "header_size",        "type": "uint64", "doc": "sizeof(IndexHeader); use as forward-compat marker." },
+        { "name": "gene_record_size",   "type": "uint32" },
+        { "name": "hit_record_size",    "type": "uint32" },
+        { "name": "off_gene_index",     "type": "uint64", "doc": "Byte offset of GeneRecord array from file start." },
+        { "name": "off_hits",           "type": "uint64", "doc": "Byte offset of HitRecord array." },
+        { "name": "off_string_pool",    "type": "uint64", "doc": "Byte offset of string pool." },
+        { "name": "reserved",           "type": "uint8[16]", "doc": "Reserved for future use; zero in v1." }
+      ]
+    },
+    "GeneRecord": {
+      "size_bytes": 24,
+      "ordering": "Records are sorted alphabetically by gene name (strcmp on pool[name_off]).",
+      "fields_in_order": [
+        { "name": "name_off",  "type": "uint32", "doc": "Offset into string pool." },
+        { "name": "name_len",  "type": "uint32", "doc": "Length excluding NUL (informational)." },
+        { "name": "hits_off",  "type": "uint64", "doc": "Index (NOT byte offset) into the hit array; first hit for this gene." },
+        { "name": "n_hits",    "type": "uint32" },
+        { "name": "reserved",  "type": "uint32" }
+      ]
+    },
+    "HitRecord": {
+      "size_bytes": 48,
+      "ordering": "Within a gene's hit range: sorted by bitscore descending, then identity descending.",
+      "fields_in_order": [
+        { "name": "target_off",  "type": "uint32", "doc": "Subject id (DIAMOND) or contig name (miniprot)." },
+        { "name": "source_off",  "type": "uint32", "doc": "Source label (e.g. species name)." },
+        { "name": "qstart",      "type": "int32",  "doc": "Query start coordinate as emitted by the source tool (DIAMOND: 1-based inclusive; miniprot PAF: 0-based half-open)." },
+        { "name": "qend",        "type": "int32" },
+        { "name": "tstart",      "type": "int32" },
+        { "name": "tend",        "type": "int32" },
+        { "name": "identity",    "type": "float32", "doc": "Fractional 0..1 (DIAMOND pident/100; miniprot matches/alnlen)." },
+        { "name": "bitscore",    "type": "float32", "doc": "-1 if not available. miniprot: parsed from ms:i: or AS:i: tag if present." },
+        { "name": "evalue",      "type": "float64", "doc": "-1 if not available (miniprot)." },
+        { "name": "alnlen",      "type": "uint32" },
+        { "name": "n_segments",  "type": "uint16", "doc": "1 for DIAMOND; future: parsed from miniprot cs:Z: tag." },
+        { "name": "source_type", "type": "uint8",  "doc": "0=DIAMOND, 1=miniprot." },
+        { "name": "strand",      "type": "uint8",  "doc": "'+' (0x2B), '-' (0x2D), or 0 if N/A." }
+      ]
+    },
+    "string_pool": {
+      "type": "char[string_pool_size]",
+      "doc": "Concatenated NUL-terminated strings referenced by *_off fields. Offset 0 is reserved for the empty string."
+    }
+  },
+  "lookup_algorithm": "Binary-search the GeneRecord array by strcmp on string_pool[record.name_off]. Found → iterate hits[gene.hits_off .. gene.hits_off + gene.n_hits].",
+  "endianness_note": "Builder and query both assume little-endian host (x86_64, aarch64 LE). Reading on big-endian hosts is not supported in v1.",
+  "source_type_codes": {
+    "0": "DIAMOND tabular -outfmt 6",
+    "1": "miniprot PAF"
+  }
+}
