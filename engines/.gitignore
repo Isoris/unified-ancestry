@@ -6,6 +6,8 @@ export_q_residual_dosage
 codon_stats
 pi_NS
 fdM
+region_test
+ultrabootstrap
 homolog_index_build
 homolog_index_query
 homolog_atlas_server
