@@ -4,6 +4,7 @@ hobs_windower
 rare_sfs_pairwise
 export_q_residual_dosage
 codon_stats
+pi_NS
 homolog_index_build
 homolog_index_query
 homolog_atlas_server

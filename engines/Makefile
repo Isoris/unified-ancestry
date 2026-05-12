@@ -22,7 +22,7 @@ PREFIX  ?= $(HOME)/.local
 
 CPP_BINS = instant_q
 C_BINS   = region_popstats rare_sfs_pairwise export_q_residual_dosage hobs_windower \
-           codon_stats homolog_index_build homolog_index_query homolog_atlas_server
+           codon_stats pi_NS homolog_index_build homolog_index_query homolog_atlas_server
 ALL_BINS = $(CPP_BINS) $(C_BINS)
 
 all: $(ALL_BINS)
@@ -43,6 +43,9 @@ hobs_windower: hobs_windower.c
 	$(CC) -O3 -o $@ $< -lz -lm
 
 codon_stats: codon_stats.c
+	$(CC) $(CFLAGS) -o $@ $< -lm -fopenmp
+
+pi_NS: pi_NS.c
 	$(CC) $(CFLAGS) -o $@ $< -lm -fopenmp
 
 homolog_index_build: homolog_index_build.c homolog_index.h
