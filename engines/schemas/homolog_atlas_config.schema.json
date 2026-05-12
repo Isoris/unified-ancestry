@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "homolog_atlas_config.schema.json",
+  "title": "homolog atlas build config",
+  "description": "JSON config consumed by dispatchers/build_homolog_atlas.sh via --config. CLI flags override config values where both are supplied.",
+  "type": "object",
+  "required": ["query", "out_dir"],
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Path to the query proteome (FASTA). The atlas is keyed by these protein IDs."
+    },
+    "out_dir": {
+      "type": "string",
+      "description": "Output directory. Created if missing. Holds homolog_atlas.holindx and (optionally) intermediates."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["strict", "chain", "loose"],
+      "default": "chain",
+      "description": "miniprot preset. strict = single best hit per query (orthologue picking). chain = primary + paralog chains with gene context (recommended). loose = wide net for paralog/homolog discovery."
+    },
+    "threads": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 8
+    },
+    "targets": {
+      "type": "array",
+      "description": "Genomes to align the query proteome against (miniprot).",
+      "items": {
+        "type": "object",
+        "required": ["path", "label"],
+        "properties": {
+          "path":  { "type": "string", "description": "Path to genome FASTA (may be .gz)." },
+          "label": { "type": "string", "description": "Source label written into the index. Recommend species or assembly id." }
+        }
+      }
+    },
+    "diamond_files": {
+      "type": "array",
+      "description": "Pre-computed DIAMOND tabular hit files (-outfmt 6) to ingest directly.",
+      "items": {
+        "type": "object",
+        "required": ["path", "label"],
+        "properties": {
+          "path":  { "type": "string" },
+          "label": { "type": "string" }
+        }
+      }
+    },
+    "diamond_subjects": {
+      "type": "array",
+      "description": "Subject proteomes to run DIAMOND blastp against on the fly. The pipeline calls `diamond makedb` then `diamond blastp -q query -d <db> --outfmt 6`.",
+      "items": {
+        "type": "object",
+        "required": ["path", "label"],
+        "properties": {
+          "path":  { "type": "string" },
+          "label": { "type": "string" }
+        }
+      }
+    }
+  },
+  "mode_preset_details": {
+    "strict": { "miniprot_flags": "--outs=0.99 -N 1 -p 0.5 -G 100k",   "use_case": "Picking the single most likely orthologue per query." },
+    "chain":  { "miniprot_flags": "--outs=0.95 -N 20 -p 0.3 -G 100k",  "use_case": "Default. Primary chain + tandem/segmental paralogs with gene context." },
+    "loose":  { "miniprot_flags": "--outs=0.80 -N 100 -p 0.2 -G 200k", "use_case": "Paralog/homolog discovery across deep duplications." }
+  },
+  "example": {
+    "query": "/data/atlas/zebrafish_proteome.fa",
+    "out_dir": "/data/atlas/2026_05_v1",
+    "mode": "chain",
+    "threads": 16,
+    "targets": [
+      { "path": "/data/genomes/GCF_000002035.6_GRCz11.fna.gz", "label": "zebrafish_GRCz11" },
+      { "path": "/data/genomes/GCF_002021735.2_Ssal_v3.1.fa",  "label": "atlantic_salmon" }
+    ],
+    "diamond_subjects": [
+      { "path": "/data/atlas/zebrafish_proteome.fa", "label": "zebrafish_self_blastp" }
+    ]
+  }
+}
