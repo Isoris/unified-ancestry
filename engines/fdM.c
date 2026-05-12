@@ -2,6 +2,46 @@
 // fdM.c — Patterson's D + Malinsky 2015 fdM introgression statistic, per
 //         genomic window, from BEAGLE genotype likelihoods.
 //
+// ── What Patterson's D measures (ABBA-BABA test, four-taxon) ────────────────
+//
+// Species tree assumed: ((P1, P2), P3), Outgroup.
+//   P1, P2 are sister groups; P3 is more distant; the outgroup defines the
+//   ancestral allele (A). Derived = B (anything different from O).
+//
+// At each biallelic SNP, classify the 4-pop allele state:
+//   ABBA  : P1=A  P2=B  P3=B  O=A   (P2 + P3 share derived allele)
+//   BABA  : P1=B  P2=A  P3=B  O=A   (P1 + P3 share derived allele)
+//
+//   D = (Σ ABBA − Σ BABA) / (Σ ABBA + Σ BABA)
+//
+//   D ≈ 0  : symmetric — incomplete-lineage-sorting only, tree-like.
+//   D > 0  : excess ABBA → P3 shares more derived alleles with P2
+//                          (consistent with P2↔P3 gene flow).
+//   D < 0  : excess BABA → P3 shares more derived alleles with P1
+//                          (consistent with P1↔P3 gene flow).
+//
+// Why it works: under the null (no gene flow), ILS produces ABBA and BABA at
+// equal expected rates. Introgression P3↔P2 pushes more sites into ABBA;
+// P3↔P1 pushes more into BABA. The imbalance is the signal.
+//
+// fdM (Malinsky 2015) is the modified-fd that's symmetric around 0 and bounded
+// in [-1, 1]: same numerator as D but divided by the maximum-introgression
+// expectation, with sign matching D so |fdM| is interpretable as the fraction
+// of admixture relative to a "complete introgression" reference.
+//
+// Catfish-atlas examples:
+//   - P1, P2 = two hatchery families; P3 = wild lineage; O = distant species
+//     → tests for differential introgression of wild ancestry into families.
+//   - Run inside vs outside an inversion candidate to ask whether the
+//     inversion carries introgressed ancestry.
+//   - Genome-wide jackknife (--jackknife_blocks N) gives the SE / Z / p for
+//     "is the genome-wide signal significantly non-zero?"
+//
+// Mental shortcut: D asks whether P3 shares more derived alleles with P1 or P2.
+//                   fdM is the same question, but signed and on [-1, 1].
+//
+// ── Genealogy summary ───────────────────────────────────────────────────────
+//
 // Genealogy: ((P1, (P2, P3)), O), where O is the outgroup.
 //   fdM > 0  → gene flow P3 → P2
 //   fdM < 0  → gene flow P3 → P1
