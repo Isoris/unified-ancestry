@@ -22,7 +22,7 @@ PREFIX  ?= $(HOME)/.local
 
 CPP_BINS = instant_q
 C_BINS   = region_popstats rare_sfs_pairwise export_q_residual_dosage hobs_windower \
-           codon_stats homolog_index_build homolog_index_query
+           codon_stats homolog_index_build homolog_index_query homolog_atlas_server
 ALL_BINS = $(CPP_BINS) $(C_BINS)
 
 all: $(ALL_BINS)
@@ -50,6 +50,9 @@ homolog_index_build: homolog_index_build.c homolog_index.h
 
 homolog_index_query: homolog_index_query.c homolog_index.h
 	$(CC) -O3 -march=native -Wall -o $@ $<
+
+homolog_atlas_server: homolog_atlas_server.c homolog_index.h
+	$(CC) -O3 -march=native -Wall -o $@ $< -lpthread
 
 install: $(ALL_BINS)
 	mkdir -p $(PREFIX)/bin

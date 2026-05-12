@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "homolog_atlas_server.api.schema.json",
+  "title": "homolog_atlas_server HTTP API",
+  "description": "Tiny C HTTP server that mmaps a .holindx and serves microsecond-latency lookups. All responses are application/json with CORS Access-Control-Allow-Origin: * so a browser-based atlas page can call directly.",
+  "version": "homolog_atlas_server/1",
+  "endpoints": {
+    "GET /lookup": {
+      "description": "Look up all hits for a gene id.",
+      "query_parameters": {
+        "gene":         { "type": "string",  "required": true,  "description": "Gene id, as it appears in the query proteome used at build time." },
+        "source":       { "type": "string",  "required": false, "enum": ["diamond", "miniprot"], "description": "Filter to this source type." },
+        "min_identity": { "type": "number",  "required": false, "description": "Fractional 0..1." },
+        "min_bitscore": { "type": "number",  "required": false },
+        "limit":        { "type": "integer", "required": false, "description": "Stop after N hits. Combined with build-time bitscore-desc sort, returns top-N." }
+      },
+      "responses": {
+        "200_found": {
+          "schema": { "$ref": "#/definitions/LookupResponse" },
+          "example": "{\"query\":\"geneA\",\"found\":true,\"n_hits_total\":4,\"hits\":[{...}],\"n_hits_emitted\":4}"
+        },
+        "200_not_found": {
+          "schema": { "$ref": "#/definitions/LookupNotFound" },
+          "example": "{\"query\":\"NOSUCH\",\"found\":false,\"n_hits\":0,\"hits\":[]}"
+        },
+        "400_bad_request": {
+          "schema": { "type": "object", "properties": { "error": { "type": "string" } } },
+          "examples": [
+            "{\"error\":\"missing required parameter: gene\"}",
+            "{\"error\":\"source must be 'diamond' or 'miniprot'\"}"
+          ]
+        }
+      }
+    },
+    "GET /health": {
+      "description": "Server + index diagnostics. Atlas pages should hit this on bootstrap.",
+      "responses": {
+        "200": {
+          "schema": { "$ref": "#/definitions/HealthResponse" },
+          "example": "{\"ok\":true,\"service\":\"homolog_atlas_server/1\",\"index_path\":\"/data/atlas.holindx\",\"index_version\":1,\"n_genes\":52341,\"n_hits\":841205,\"size_mb\":92.412,\"string_pool_bytes\":4567823}"
+        }
+      }
+    },
+    "GET /": {
+      "description": "Service descriptor (list of endpoints).",
+      "responses": {
+        "200": { "example": "{\"service\":\"homolog_atlas_server/1\",\"endpoints\":[\"GET /lookup?...\",\"GET /health\",\"GET /\"]}" }
+      }
+    },
+    "OPTIONS *": {
+      "description": "CORS preflight. Returns 200 with empty body and full CORS headers."
+    }
+  },
+  "definitions": {
+    "Hit": {
+      "type": "object",
+      "required": ["target", "source_label", "source_type", "identity",
+                   "bitscore", "evalue", "qstart", "qend", "tstart", "tend",
+                   "alnlen", "n_segments", "strand"],
+      "properties": {
+        "target":        { "type": "string", "description": "Subject id (DIAMOND) or contig name (miniprot)." },
+        "source_label":  { "type": "string" },
+        "source_type":   { "type": "string", "enum": ["diamond", "miniprot", "unknown"] },
+        "identity":      { "type": "number", "description": "Fractional 0..1." },
+        "bitscore":      { "type": "number", "description": "-1 if not available." },
+        "evalue":        { "type": "number", "description": "-1 if not available." },
+        "qstart":        { "type": "integer" },
+        "qend":          { "type": "integer" },
+        "tstart":        { "type": "integer" },
+        "tend":          { "type": "integer" },
+        "alnlen":        { "type": "integer" },
+        "n_segments":    { "type": "integer" },
+        "strand":        { "type": "string", "enum": ["+", "-", "."] }
+      }
+    },
+    "LookupResponse": {
+      "type": "object",
+      "required": ["query", "found", "n_hits_total", "hits", "n_hits_emitted"],
+      "properties": {
+        "query":          { "type": "string" },
+        "found":          { "type": "boolean", "enum": [true] },
+        "n_hits_total":   { "type": "integer", "description": "Total hits in the index for this gene (pre-filtering)." },
+        "hits":           { "type": "array",   "items": { "$ref": "#/definitions/Hit" } },
+        "n_hits_emitted": { "type": "integer", "description": "Hits in `hits` after source/min_*/limit filters." }
+      }
+    },
+    "LookupNotFound": {
+      "type": "object",
+      "required": ["query", "found", "n_hits", "hits"],
+      "properties": {
+        "query":  { "type": "string" },
+        "found":  { "type": "boolean", "enum": [false] },
+        "n_hits": { "type": "integer", "enum": [0] },
+        "hits":   { "type": "array",   "maxItems": 0 }
+      }
+    },
+    "HealthResponse": {
+      "type": "object",
+      "required": ["ok", "service", "index_path", "index_version", "n_genes", "n_hits", "size_mb", "string_pool_bytes"],
+      "properties": {
+        "ok":                { "type": "boolean" },
+        "service":           { "type": "string" },
+        "index_path":        { "type": "string" },
+        "index_version":     { "type": "integer" },
+        "n_genes":           { "type": "integer" },
+        "n_hits":            { "type": "integer" },
+        "size_mb":           { "type": "number" },
+        "string_pool_bytes": { "type": "integer" }
+      }
+    }
+  },
+  "cors": {
+    "Access-Control-Allow-Origin":  "*",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "*"
+  },
+  "deployment_notes": {
+    "binding": "Default --bind 127.0.0.1 is loopback only. Use --bind 0.0.0.0 for any-interface, or front with nginx for TLS / auth.",
+    "concurrency": "pthread per connection, detached. The mmap'd index is read-only and shared across threads.",
+    "graceful_shutdown": "SIGINT / SIGTERM stop the accept loop; in-flight connections complete.",
+    "rebuilding": "Index is mmap'd at startup; rebuild a new .holindx and restart the server to swap. Hot reload not implemented."
+  }
+}

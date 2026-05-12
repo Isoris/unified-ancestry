@@ -6,5 +6,6 @@ export_q_residual_dosage
 codon_stats
 homolog_index_build
 homolog_index_query
+homolog_atlas_server
 *.o
 *.holindx
