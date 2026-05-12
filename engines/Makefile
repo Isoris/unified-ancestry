@@ -21,7 +21,7 @@ LDFLAGS  = -lz -lm -fopenmp
 PREFIX  ?= $(HOME)/.local
 
 CPP_BINS = instant_q
-C_BINS   = region_popstats rare_sfs_pairwise export_q_residual_dosage hobs_windower
+C_BINS   = region_popstats rare_sfs_pairwise export_q_residual_dosage hobs_windower codon_stats
 ALL_BINS = $(CPP_BINS) $(C_BINS)
 
 all: $(ALL_BINS)
@@ -40,6 +40,9 @@ export_q_residual_dosage: export_q_residual_dosage.c
 
 hobs_windower: hobs_windower.c
 	$(CC) -O3 -o $@ $< -lz -lm
+
+codon_stats: codon_stats.c
+	$(CC) $(CFLAGS) -o $@ $< -lm -fopenmp
 
 install: $(ALL_BINS)
 	mkdir -p $(PREFIX)/bin

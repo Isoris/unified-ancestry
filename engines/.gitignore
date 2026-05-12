@@ -3,4 +3,5 @@ region_popstats
 hobs_windower
 rare_sfs_pairwise
 export_q_residual_dosage
+codon_stats
 *.o

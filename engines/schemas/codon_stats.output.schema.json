@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "codon_stats.output.schema.json",
+  "title": "codon_stats output row",
+  "description": "One TSV row per input pair. NaN values appear as 'NA'; positive infinity as 'Inf' (when JC saturation hits p >= 0.75).",
+  "type": "object",
+  "schema_version": "codon_stats_v1",
+  "tsv_header_marker": "# schema_version=codon_stats_v1 method=NG86",
+  "columns_in_order": [
+    "pair_id", "n_aligned_bp", "n_codons_total", "n_codons_used",
+    "n_codons_gap", "n_codons_stop", "n_4d_sites", "n_4d_diffs",
+    "S", "N", "sd", "nd", "pS", "pN", "dS", "dN", "omega", "p4d", "d4d"
+  ],
+  "properties": {
+    "pair_id": { "type": "string" },
+    "n_aligned_bp": {
+      "type": "integer",
+      "description": "Length of each aligned sequence (assumed equal)."
+    },
+    "n_codons_total": {
+      "type": "integer",
+      "description": "Total codons in the alignment (n_aligned_bp / 3, integer division)."
+    },
+    "n_codons_used": {
+      "type": "integer",
+      "description": "Codons contributing to NG86 statistics: both sequences ACGT, neither codon a stop."
+    },
+    "n_codons_gap": {
+      "type": "integer",
+      "description": "Codons skipped because either sequence had a non-ACGT character ('-', 'N', etc.)."
+    },
+    "n_codons_stop": {
+      "type": "integer",
+      "description": "Codons skipped because at least one sequence had a stop codon (TAA, TAG, TGA)."
+    },
+    "n_4d_sites": {
+      "type": "integer",
+      "description": "Codons where position 3 is 4-fold degenerate in BOTH sequences AND positions 1–2 match between the two sequences. These count toward d4d (neutral rate proxy)."
+    },
+    "n_4d_diffs": {
+      "type": "integer",
+      "description": "Subset of n_4d_sites where position 3 differs between the two sequences."
+    },
+    "S": {
+      "type": "number",
+      "description": "Synonymous-site count (NG86), summed across used codons. Average of S_per_codon over the two sequences."
+    },
+    "N": {
+      "type": "number",
+      "description": "Nonsynonymous-site count = 3 * n_codons_used − S."
+    },
+    "sd": {
+      "type": "number",
+      "description": "Synonymous substitution count, path-averaged over codon differences (1 path for nd=1, 2 for nd=2, 6 for nd=3, stop-containing paths discarded)."
+    },
+    "nd": {
+      "type": "number",
+      "description": "Nonsynonymous substitution count, path-averaged."
+    },
+    "pS": {
+      "type": ["number", "string"],
+      "description": "Proportion of synonymous differences = sd/S. NA if S == 0."
+    },
+    "pN": {
+      "type": ["number", "string"],
+      "description": "Proportion of nonsynonymous differences = nd/N. NA if N == 0."
+    },
+    "dS": {
+      "type": ["number", "string"],
+      "description": "Jukes-Cantor corrected synonymous divergence (Ks). 'Inf' if pS >= 0.75 (JC saturated); NA if pS is NA."
+    },
+    "dN": {
+      "type": ["number", "string"],
+      "description": "Jukes-Cantor corrected nonsynonymous divergence (Ka). 'Inf' if pN >= 0.75."
+    },
+    "omega": {
+      "type": ["number", "string"],
+      "description": "dN/dS ratio. NA if dS is NA, Inf, or 0."
+    },
+    "p4d": {
+      "type": ["number", "string"],
+      "description": "Raw proportion of differences at 4-fold degenerate sites = n_4d_diffs / n_4d_sites. NA if n_4d_sites == 0."
+    },
+    "d4d": {
+      "type": ["number", "string"],
+      "description": "JC-corrected 4D divergence — most-neutral substitution-rate proxy. 'Inf' if p4d >= 0.75."
+    }
+  },
+  "method_field": "NG86",
+  "method_details": {
+    "NG86": {
+      "reference": "Nei & Gojobori 1986, Mol Biol Evol 3:418-426",
+      "site_counting": "Per-codon S = sum over 3 positions of (#synonymous 1-step neighbours / 3). Pair S = average of the two codons' S values.",
+      "substitution_counting": "Path-averaged; stop-containing intermediates dropped; nd=1 ⇒ 1 path, nd=2 ⇒ 2 paths, nd=3 ⇒ 6 paths.",
+      "distance_correction": "Jukes-Cantor 1969: d = -3/4 * ln(1 - 4/3 p). Saturation at p >= 0.75 ⇒ Inf.",
+      "fourfold_degenerate": "Position 3 is 4D iff all 4 codons in the same first-two-nt family (Leu CTN, Val GTN, Pro CCN, Thr ACN, Ala GCN, Gly GGN, Arg CGN, Ser TCN) encode the same amino acid. A site contributes to d4d only if BOTH codons have a 4D 3rd position AND positions 1–2 match between the two sequences."
+    },
+    "YN00": {
+      "status": "planned (Turn 2 of this session): Yang & Nielsen 2000 κ-corrected NG with transition/transversion bias estimated iteratively from the data."
+    }
+  }
+}
