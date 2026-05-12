@@ -52,7 +52,7 @@
 #include <omp.h>
 #endif
 
-#define SCHEMA_VERSION "pi_NS_v1"
+#define SCHEMA_VERSION "pi_NS_v2"
 #define N_CODONS 64
 
 // ── Genetic code (NCBI table 1). codon = (nt1<<4)|(nt2<<2)|nt3, A=0 C=1 G=2 T=3
@@ -65,6 +65,13 @@ static const char STD_CODE[N_CODONS + 1] =
 static char  aa_of[N_CODONS];
 static int   is_stop[N_CODONS];
 static double S_codon[N_CODONS];
+
+// Per-codon-position degeneracy = number of synonymous 1-step alt nts.
+//   0 → 0-fold (any nt change is nonsyn) — π0_fold proxy for πN
+//   3 → 4-fold (all nt changes are syn)   — π4_fold proxy for πS (most-neutral)
+//   1 or 2 → intermediate, ignored by π0/π4
+// degeneracy[c][p] = -1 if codon c is a stop.
+static int   degeneracy[N_CODONS][3];
 
 typedef struct { double sd; double nd; } CodonSubs;
 static CodonSubs sub_table[N_CODONS][N_CODONS];
@@ -147,6 +154,26 @@ static void init_codon_tables(void) {
     for (int c1 = 0; c1 < N_CODONS; c1++)
         for (int c2 = 0; c2 < N_CODONS; c2++)
             sub_table[c1][c2] = compute_pair_subs(c1, c2);
+    // Per-position degeneracy: count syn 1-step alt nts at each codon position.
+    for (int c = 0; c < N_CODONS; c++) {
+        if (is_stop[c]) {
+            for (int p = 0; p < 3; p++) degeneracy[c][p] = -1;
+            continue;
+        }
+        int nt[3] = { (c >> 4) & 3, (c >> 2) & 3, c & 3 };
+        for (int p = 0; p < 3; p++) {
+            int n_syn = 0;
+            for (int alt = 0; alt < 4; alt++) {
+                if (alt == nt[p]) continue;
+                int nn[3] = { nt[0], nt[1], nt[2] };
+                nn[p] = alt;
+                int cc = (nn[0] << 4) | (nn[1] << 2) | nn[2];
+                if (is_stop[cc]) continue;
+                if (aa_of[cc] == aa_of[c]) n_syn++;
+            }
+            degeneracy[c][p] = n_syn;
+        }
+    }
 }
 
 // ── Haplotype storage ─────────────────────────────────────────────────────
@@ -316,21 +343,37 @@ typedef struct {
     double pi_S;
     double pi_N;
     double pi_NS_ratio;
-    // Coverage correction (paper: invariant-sites-derived fraction of CDS bases called).
-    // Applied as: pi_X_corrected = pi_X / coverage_factor.
+    // π0-fold / π4-fold (per-codon-position pairwise nt diffs at sites where the
+    // reference codon's degeneracy is 0 or 3). π4 ≈ neutral, π0 ≈ all nonsyn.
+    int    n_4fold_sites;
+    int    n_0fold_sites;
+    double total_diffs_4fold;          // sum over 4-fold sites of mean pairwise nt diff
+    double total_diffs_0fold;
+    double pi_4fold;
+    double pi_0fold;
+    double pi_04_ratio;                // π0 / π4, ≈ πN/πS proxy
+    // Coverage correction.
     double coverage_factor;
     double pi_S_corrected;
     double pi_N_corrected;
-    // Bootstrap CI (set by bootstrap_pi; NaN if --bootstrap 0).
+    double pi_4fold_corrected;
+    double pi_0fold_corrected;
+    // Bootstrap CIs (set by bootstrap_pi; NaN if --bootstrap 0).
     int    bootstrap_reps;
     double pi_S_lo, pi_S_hi;
     double pi_N_lo, pi_N_hi;
     double pi_NS_lo, pi_NS_hi;
+    double pi_4fold_lo, pi_4fold_hi;
+    double pi_0fold_lo, pi_0fold_hi;
+    double pi_04_lo, pi_04_hi;
     // Per-codon contributions, kept for bootstrap (free with free_codon_contribs).
-    // Each codon contributes: mean_S, mean_sd_per_pair, mean_nd_per_pair.
     double* codon_S;
     double* codon_sd;
     double* codon_nd;
+    double* codon_n4;                  // # 4-fold positions contributed by this codon (0..3)
+    double* codon_d4;                  // sum of mean pairwise nt diffs at those positions
+    double* codon_n0;
+    double* codon_d0;
     int     n_codon_contribs;
 } PiStats;
 
@@ -338,6 +381,10 @@ static void free_codon_contribs(PiStats* s) {
     free(s->codon_S);  s->codon_S = NULL;
     free(s->codon_sd); s->codon_sd = NULL;
     free(s->codon_nd); s->codon_nd = NULL;
+    free(s->codon_n4); s->codon_n4 = NULL;
+    free(s->codon_d4); s->codon_d4 = NULL;
+    free(s->codon_n0); s->codon_n0 = NULL;
+    free(s->codon_d0); s->codon_d0 = NULL;
     s->n_codon_contribs = 0;
 }
 
@@ -346,11 +393,16 @@ static void compute_pi_for_group(const Hap* haps, const int* members, int n_memb
     memset(out, 0, sizeof(*out));
     out->n_seqs = n_members;
     out->pi_S = NAN; out->pi_N = NAN; out->pi_NS_ratio = NAN;
+    out->pi_4fold = NAN; out->pi_0fold = NAN; out->pi_04_ratio = NAN;
     out->coverage_factor = 1.0;
     out->pi_S_corrected = NAN; out->pi_N_corrected = NAN;
+    out->pi_4fold_corrected = NAN; out->pi_0fold_corrected = NAN;
     out->pi_S_lo = out->pi_S_hi = NAN;
     out->pi_N_lo = out->pi_N_hi = NAN;
     out->pi_NS_lo = out->pi_NS_hi = NAN;
+    out->pi_4fold_lo = out->pi_4fold_hi = NAN;
+    out->pi_0fold_lo = out->pi_0fold_hi = NAN;
+    out->pi_04_lo = out->pi_04_hi = NAN;
     if (n_members < 2 || seq_len < 3) return;
     out->n_codons_total = seq_len / 3;
 
@@ -359,12 +411,17 @@ static void compute_pi_for_group(const Hap* haps, const int* members, int n_memb
         out->codon_S  = (double*)malloc((size_t)max_codons * sizeof(double));
         out->codon_sd = (double*)malloc((size_t)max_codons * sizeof(double));
         out->codon_nd = (double*)malloc((size_t)max_codons * sizeof(double));
+        out->codon_n4 = (double*)malloc((size_t)max_codons * sizeof(double));
+        out->codon_d4 = (double*)malloc((size_t)max_codons * sizeof(double));
+        out->codon_n0 = (double*)malloc((size_t)max_codons * sizeof(double));
+        out->codon_d0 = (double*)malloc((size_t)max_codons * sizeof(double));
     }
 
     int* codons = (int*)malloc((size_t)n_members * sizeof(int));
 
     for (int pos = 0; pos + 2 < seq_len; pos += 3) {
         int n_valid = 0;
+        int ref_codon = -1;  // first valid codon — used for degeneracy classification
         for (int k = 0; k < n_members; k++) {
             int idx = members[k];
             if (pos + 2 >= haps[idx].len) { codons[k] = -1; continue; }
@@ -375,10 +432,12 @@ static void compute_pi_for_group(const Hap* haps, const int* members, int n_memb
             int cc = (n1 << 4) | (n2 << 2) | n3;
             if (is_stop[cc]) { codons[k] = -1; continue; }
             codons[k] = cc;
+            if (ref_codon < 0) ref_codon = cc;
             n_valid++;
         }
         if (n_valid < 2) continue;
 
+        // πS / πN (NG86 path-averaged, codon-pair level).
         double mean_S = 0;
         for (int k = 0; k < n_members; k++) if (codons[k] >= 0) mean_S += S_codon[codons[k]];
         mean_S /= n_valid;
@@ -401,10 +460,51 @@ static void compute_pi_for_group(const Hap* haps, const int* members, int n_memb
         out->total_sd += mean_sd;
         out->total_nd += mean_nd;
 
+        // π0-fold / π4-fold (per-codon-position pairwise nt-diff at sites where
+        // the reference codon's position is 0-fold or 4-fold degenerate).
+        double n4_contrib = 0, d4_contrib = 0;
+        double n0_contrib = 0, d0_contrib = 0;
+        for (int p = 0; p < 3; p++) {
+            int deg = degeneracy[ref_codon][p];
+            if (deg != 0 && deg != 3) continue;
+            int nt_pos = pos + p;
+            int pair_diffs = 0, pair_count = 0;
+            for (int i = 0; i < n_members; i++) {
+                if (codons[i] < 0) continue;
+                int ni = nt_enc(haps[members[i]].seq[nt_pos]);
+                if (ni < 0) continue;
+                for (int j = i + 1; j < n_members; j++) {
+                    if (codons[j] < 0) continue;
+                    int nj = nt_enc(haps[members[j]].seq[nt_pos]);
+                    if (nj < 0) continue;
+                    pair_count++;
+                    if (ni != nj) pair_diffs++;
+                }
+            }
+            if (pair_count == 0) continue;
+            double mean_diff = (double)pair_diffs / pair_count;
+            if (deg == 3) {
+                out->n_4fold_sites++;
+                out->total_diffs_4fold += mean_diff;
+                n4_contrib += 1.0;
+                d4_contrib += mean_diff;
+            } else {
+                out->n_0fold_sites++;
+                out->total_diffs_0fold += mean_diff;
+                n0_contrib += 1.0;
+                d0_contrib += mean_diff;
+            }
+        }
+
         if (keep_codon_contribs && out->codon_S) {
-            out->codon_S[out->n_codon_contribs]  = mean_S;
-            out->codon_sd[out->n_codon_contribs] = mean_sd;
-            out->codon_nd[out->n_codon_contribs] = mean_nd;
+            int k = out->n_codon_contribs;
+            out->codon_S[k]  = mean_S;
+            out->codon_sd[k] = mean_sd;
+            out->codon_nd[k] = mean_nd;
+            out->codon_n4[k] = n4_contrib;
+            out->codon_d4[k] = d4_contrib;
+            out->codon_n0[k] = n0_contrib;
+            out->codon_d0[k] = d0_contrib;
             out->n_codon_contribs++;
         }
         out->n_codons_used++;
@@ -416,15 +516,21 @@ static void compute_pi_for_group(const Hap* haps, const int* members, int n_memb
     out->pi_S = (out->S_total > 0) ? out->total_sd / out->S_total : NAN;
     out->pi_N = (out->N_total > 0) ? out->total_nd / out->N_total : NAN;
     if (isfinite(out->pi_S) && out->pi_S > 0) out->pi_NS_ratio = out->pi_N / out->pi_S;
+
+    out->pi_4fold = (out->n_4fold_sites > 0) ? out->total_diffs_4fold / out->n_4fold_sites : NAN;
+    out->pi_0fold = (out->n_0fold_sites > 0) ? out->total_diffs_0fold / out->n_0fold_sites : NAN;
+    if (isfinite(out->pi_4fold) && out->pi_4fold > 0)
+        out->pi_04_ratio = out->pi_0fold / out->pi_4fold;
 }
 
 // Apply coverage correction in place. Called after compute_pi_for_group.
 static void apply_coverage_correction(PiStats* s, double coverage_factor) {
     s->coverage_factor = (coverage_factor > 0) ? coverage_factor : 1.0;
-    s->pi_S_corrected = (isfinite(s->pi_S) && s->coverage_factor > 0)
-                        ? s->pi_S / s->coverage_factor : NAN;
-    s->pi_N_corrected = (isfinite(s->pi_N) && s->coverage_factor > 0)
-                        ? s->pi_N / s->coverage_factor : NAN;
+    double cf = s->coverage_factor;
+    s->pi_S_corrected      = (isfinite(s->pi_S)      && cf > 0) ? s->pi_S      / cf : NAN;
+    s->pi_N_corrected      = (isfinite(s->pi_N)      && cf > 0) ? s->pi_N      / cf : NAN;
+    s->pi_4fold_corrected  = (isfinite(s->pi_4fold)  && cf > 0) ? s->pi_4fold  / cf : NAN;
+    s->pi_0fold_corrected  = (isfinite(s->pi_0fold)  && cf > 0) ? s->pi_0fold  / cf : NAN;
 }
 
 static int dbl_cmp(const void* a, const void* b) {
@@ -457,21 +563,32 @@ static void bootstrap_pi(PiStats* s, int n_boot, double coverage_factor, unsigne
     double* repS  = (double*)malloc((size_t)n_boot * sizeof(double));
     double* repN  = (double*)malloc((size_t)n_boot * sizeof(double));
     double* repR  = (double*)malloc((size_t)n_boot * sizeof(double));
+    double* rep4  = (double*)malloc((size_t)n_boot * sizeof(double));
+    double* rep0  = (double*)malloc((size_t)n_boot * sizeof(double));
+    double* rep04 = (double*)malloc((size_t)n_boot * sizeof(double));
 
     for (int b = 0; b < n_boot; b++) {
         double S_total = 0, N_total = 0, sd_total = 0, nd_total = 0;
+        double n4_total = 0, d4_total = 0, n0_total = 0, d0_total = 0;
         for (int c = 0; c < nc; c++) {
             int k = (int)(rand_r(rng_state) % (unsigned int)nc);
             S_total += s->codon_S[k];
             N_total += 3.0 - s->codon_S[k];
             sd_total += s->codon_sd[k];
             nd_total += s->codon_nd[k];
+            n4_total += s->codon_n4[k];
+            d4_total += s->codon_d4[k];
+            n0_total += s->codon_n0[k];
+            d0_total += s->codon_d0[k];
         }
-        double pS = (S_total > 0) ? (sd_total / S_total) / cov : NAN;
-        double pN = (N_total > 0) ? (nd_total / N_total) / cov : NAN;
-        repS[b] = pS;
-        repN[b] = pN;
-        repR[b] = (isfinite(pS) && pS > 0) ? pN / pS : NAN;
+        double pS  = (S_total > 0)  ? (sd_total / S_total) / cov : NAN;
+        double pN  = (N_total > 0)  ? (nd_total / N_total) / cov : NAN;
+        double p4  = (n4_total > 0) ? (d4_total / n4_total) / cov : NAN;
+        double p0  = (n0_total > 0) ? (d0_total / n0_total) / cov : NAN;
+        repS[b] = pS;  repN[b] = pN;
+        repR[b]  = (isfinite(pS) && pS > 0) ? pN / pS : NAN;
+        rep4[b] = p4;  rep0[b] = p0;
+        rep04[b] = (isfinite(p4) && p4 > 0) ? p0 / p4 : NAN;
     }
 
     s->pi_S_lo = pct_after_dropna(repS, n_boot, 0.025);
@@ -480,8 +597,15 @@ static void bootstrap_pi(PiStats* s, int n_boot, double coverage_factor, unsigne
     s->pi_N_hi = pct_after_dropna(repN, n_boot, 0.975);
     s->pi_NS_lo = pct_after_dropna(repR, n_boot, 0.025);
     s->pi_NS_hi = pct_after_dropna(repR, n_boot, 0.975);
+    s->pi_4fold_lo = pct_after_dropna(rep4, n_boot, 0.025);
+    s->pi_4fold_hi = pct_after_dropna(rep4, n_boot, 0.975);
+    s->pi_0fold_lo = pct_after_dropna(rep0, n_boot, 0.025);
+    s->pi_0fold_hi = pct_after_dropna(rep0, n_boot, 0.975);
+    s->pi_04_lo = pct_after_dropna(rep04, n_boot, 0.025);
+    s->pi_04_hi = pct_after_dropna(rep04, n_boot, 0.975);
 
     free(repS); free(repN); free(repR);
+    free(rep4); free(rep0); free(rep04);
 }
 
 // ── Output ────────────────────────────────────────────────────────────────
@@ -503,9 +627,17 @@ static void emit_row(FILE* fout, const char* locus_id, const char* group,
     emit_num(fout, s->pi_S);
     emit_num(fout, s->pi_N);
     emit_num(fout, s->pi_NS_ratio);
+    fprintf(fout, "\t%d\t%d", s->n_4fold_sites, s->n_0fold_sites);
+    emit_num(fout, s->total_diffs_4fold);
+    emit_num(fout, s->total_diffs_0fold);
+    emit_num(fout, s->pi_4fold);
+    emit_num(fout, s->pi_0fold);
+    emit_num(fout, s->pi_04_ratio);
     emit_num(fout, s->coverage_factor);
     emit_num(fout, s->pi_S_corrected);
     emit_num(fout, s->pi_N_corrected);
+    emit_num(fout, s->pi_4fold_corrected);
+    emit_num(fout, s->pi_0fold_corrected);
     if (with_bootstrap) {
         fprintf(fout, "\t%d", s->bootstrap_reps);
         emit_num(fout, s->pi_S_lo);
@@ -514,6 +646,12 @@ static void emit_row(FILE* fout, const char* locus_id, const char* group,
         emit_num(fout, s->pi_N_hi);
         emit_num(fout, s->pi_NS_lo);
         emit_num(fout, s->pi_NS_hi);
+        emit_num(fout, s->pi_4fold_lo);
+        emit_num(fout, s->pi_4fold_hi);
+        emit_num(fout, s->pi_0fold_lo);
+        emit_num(fout, s->pi_0fold_hi);
+        emit_num(fout, s->pi_04_lo);
+        emit_num(fout, s->pi_04_hi);
     }
     fputc('\n', fout);
 }
@@ -647,8 +785,18 @@ static void print_usage(void) {
         "Output columns (TSV; schema_version=" SCHEMA_VERSION "):\n"
         "  locus_id group n_seqs n_codons_total n_codons_used\n"
         "  S N total_sd total_nd pi_S pi_N pi_NS_ratio\n"
-        "  coverage_factor pi_S_corrected pi_N_corrected\n"
-        "  [if --bootstrap > 0:] bootstrap_reps pi_S_lo pi_S_hi pi_N_lo pi_N_hi pi_NS_lo pi_NS_hi\n");
+        "  n_4fold_sites n_0fold_sites total_diffs_4fold total_diffs_0fold\n"
+        "  pi_4fold pi_0fold pi_04_ratio\n"
+        "  coverage_factor pi_S_corrected pi_N_corrected pi_4fold_corrected pi_0fold_corrected\n"
+        "  [if --bootstrap > 0:] bootstrap_reps\n"
+        "                        pi_S_lo pi_S_hi pi_N_lo pi_N_hi pi_NS_lo pi_NS_hi\n"
+        "                        pi_4fold_lo pi_4fold_hi pi_0fold_lo pi_0fold_hi pi_04_lo pi_04_hi\n"
+        "\n"
+        "π4-fold = pairwise nt diversity at codon positions where the reference codon's\n"
+        "          degeneracy is 3 (all 3 alt nts synonymous). ≈ neutral rate proxy.\n"
+        "π0-fold = pairwise nt diversity at codon positions where degeneracy = 0\n"
+        "          (any change is nonsynonymous). ≈ conservative πN proxy.\n"
+        "π0/π4   = direct functional-burden ratio (parallel to πN/πS).\n");
 }
 
 static int load_fasta_list(const char* path, LocusEntry** out, int* n_out) {
@@ -749,8 +897,13 @@ int main(int argc, char** argv) {
     fputc('\n', fout);
     fprintf(fout, "locus_id\tgroup\tn_seqs\tn_codons_total\tn_codons_used\t"
                   "S\tN\ttotal_sd\ttotal_nd\tpi_S\tpi_N\tpi_NS_ratio\t"
-                  "coverage_factor\tpi_S_corrected\tpi_N_corrected");
-    if (n_bootstrap > 0) fprintf(fout, "\tbootstrap_reps\tpi_S_lo\tpi_S_hi\tpi_N_lo\tpi_N_hi\tpi_NS_lo\tpi_NS_hi");
+                  "n_4fold_sites\tn_0fold_sites\ttotal_diffs_4fold\ttotal_diffs_0fold\t"
+                  "pi_4fold\tpi_0fold\tpi_04_ratio\t"
+                  "coverage_factor\tpi_S_corrected\tpi_N_corrected\t"
+                  "pi_4fold_corrected\tpi_0fold_corrected");
+    if (n_bootstrap > 0)
+        fprintf(fout, "\tbootstrap_reps\tpi_S_lo\tpi_S_hi\tpi_N_lo\tpi_N_hi\tpi_NS_lo\tpi_NS_hi"
+                       "\tpi_4fold_lo\tpi_4fold_hi\tpi_0fold_lo\tpi_0fold_hi\tpi_04_lo\tpi_04_hi");
     fputc('\n', fout);
 
     unsigned int rng_state = seed;
