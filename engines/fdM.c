@@ -343,6 +343,11 @@ static void print_usage(void) {
         "  --chr <name>               Filter to a single chromosome.\n"
         "  --windows <bed>            BED of windows: chrom start end [id].\n"
         "  --fixed_win W:S            Fixed-size windows of W bp, step S.\n"
+        "  --jackknife_blocks N       Block jackknife for the GENOME-wide fdM.\n"
+        "                              Sites split into N equally-sized blocks.\n"
+        "                              Emits an extra 'GENOME' row with jackknife_SE,\n"
+        "                              jackknife_Z, jackknife_p. Per-window rows have NA\n"
+        "                              in those columns. Typical N=50–100.\n"
         "  --out <f>                  Output TSV (default stdout).\n"
         "\n"
         "Note: BEAGLE GL triplets are inherently biallelic; we don't apply extra\n"
@@ -350,22 +355,25 @@ static void print_usage(void) {
         "\n"
         "Output columns (schema_version=" SCHEMA_VERSION "):\n"
         "  window_id chrom start end n_sites n_informative\n"
-        "  D fdM sum_ABBA sum_BABA sum_num sum_denom\n");
+        "  D fdM sum_ABBA sum_BABA sum_num sum_denom\n"
+        "  jackknife_SE jackknife_Z jackknife_p   (NA except in GENOME row)\n");
 }
 
 int main(int argc, char** argv) {
     const char *beagle = NULL, *sample_path = NULL, *pops_spec = NULL,
                *filter_chr = NULL, *win_path = NULL, *out_path = NULL;
     int fixed_win = 0, fixed_step = 0;
+    int jackknife_blocks = 0;
 
     for (int i = 1; i < argc; i++) {
-        if      (!strcmp(argv[i], "--beagle")      && i+1<argc) beagle = argv[++i];
-        else if (!strcmp(argv[i], "--sample_list") && i+1<argc) sample_path = argv[++i];
-        else if (!strcmp(argv[i], "--pops")        && i+1<argc) pops_spec = argv[++i];
-        else if (!strcmp(argv[i], "--chr")         && i+1<argc) filter_chr = argv[++i];
-        else if (!strcmp(argv[i], "--windows")     && i+1<argc) win_path = argv[++i];
-        else if (!strcmp(argv[i], "--fixed_win")   && i+1<argc) sscanf(argv[++i], "%d:%d", &fixed_win, &fixed_step);
-        else if (!strcmp(argv[i], "--out")         && i+1<argc) out_path = argv[++i];
+        if      (!strcmp(argv[i], "--beagle")           && i+1<argc) beagle = argv[++i];
+        else if (!strcmp(argv[i], "--sample_list")      && i+1<argc) sample_path = argv[++i];
+        else if (!strcmp(argv[i], "--pops")             && i+1<argc) pops_spec = argv[++i];
+        else if (!strcmp(argv[i], "--chr")              && i+1<argc) filter_chr = argv[++i];
+        else if (!strcmp(argv[i], "--windows")          && i+1<argc) win_path = argv[++i];
+        else if (!strcmp(argv[i], "--fixed_win")        && i+1<argc) sscanf(argv[++i], "%d:%d", &fixed_win, &fixed_step);
+        else if (!strcmp(argv[i], "--jackknife_blocks") && i+1<argc) jackknife_blocks = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--out")              && i+1<argc) out_path = argv[++i];
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) { print_usage(); return 0; }
         else { fprintf(stderr, "[fdM] Unknown arg: %s\n", argv[i]); print_usage(); return 1; }
     }
@@ -428,10 +436,13 @@ int main(int argc, char** argv) {
     FILE* fout = out_path ? fopen(out_path, "w") : stdout;
     if (!fout) { fprintf(stderr, "[fdM] Cannot open --out %s\n", out_path); free(sites); free(wins); return 5; }
 
-    fprintf(fout, "# schema_version=%s P1=%s P2=%s P3=%s O=%s\n",
+    fprintf(fout, "# schema_version=%s P1=%s P2=%s P3=%s O=%s",
             SCHEMA_VERSION, pops[0].name, pops[1].name, pops[2].name, pops[3].name);
+    if (jackknife_blocks > 0) fprintf(fout, " jackknife_blocks=%d", jackknife_blocks);
+    fputc('\n', fout);
     fprintf(fout, "window_id\tchrom\tstart\tend\tn_sites\tn_informative\t"
-                  "D\tfdM\tsum_ABBA\tsum_BABA\tsum_num\tsum_denom\n");
+                  "D\tfdM\tsum_ABBA\tsum_BABA\tsum_num\tsum_denom\t"
+                  "jackknife_SE\tjackknife_Z\tjackknife_p\n");
 
     for (int wi = 0; wi < n_wins; wi++) {
         int ws = wins[wi].start, we = wins[wi].end;
@@ -462,8 +473,73 @@ int main(int argc, char** argv) {
         EM(w.sum_BABA);
         EM(w.sum_num);
         EM(w.sum_denom);
+        fputs("\tNA\tNA\tNA", fout);  // jackknife cols filled only in GENOME row
         #undef EM
         fputc('\n', fout);
+    }
+
+    // Genome-wide block jackknife (delete-1 over equal-sized site blocks).
+    if (jackknife_blocks > 0) {
+        WindowFdM gw;
+        compute_fdM_window(sites, 0, n_sites, &gw);
+
+        int B = jackknife_blocks;
+        if (B > n_sites) B = n_sites;
+        if (B < 2) {
+            fprintf(stderr, "[fdM] WARN: --jackknife_blocks needs ≥ 2 blocks; got %d sites → %d blocks. Skipping.\n", n_sites, B);
+        } else {
+            int sites_per_block = n_sites / B;
+            double* fdM_dropped = (double*)malloc((size_t)B * sizeof(double));
+            int n_effective = 0;
+            double sum_dropped = 0;
+
+            for (int b = 0; b < B; b++) {
+                int first = b * sites_per_block;
+                int last  = (b == B - 1) ? n_sites : (b + 1) * sites_per_block;
+                WindowFdM blk;
+                compute_fdM_window(sites, first, last, &blk);
+                double dropped_denom = gw.sum_denom - blk.sum_denom;
+                double dropped_fdM = (dropped_denom != 0)
+                                     ? (gw.sum_num - blk.sum_num) / dropped_denom : NAN;
+                fdM_dropped[b] = dropped_fdM;
+                if (isfinite(dropped_fdM)) { sum_dropped += dropped_fdM; n_effective++; }
+            }
+
+            double SE = NAN, Z = NAN, p = NAN;
+            if (n_effective >= 2 && isfinite(gw.fdM)) {
+                double mean_dropped = sum_dropped / n_effective;
+                double var_sum = 0;
+                for (int b = 0; b < B; b++) if (isfinite(fdM_dropped[b])) {
+                    double d = fdM_dropped[b] - mean_dropped;
+                    var_sum += d * d;
+                }
+                // Standard delete-1 jackknife SE: SE = sqrt((n-1)/n · Σ (θᵢ - mean(θ))²)
+                SE = sqrt((double)(n_effective - 1) / n_effective * var_sum);
+                if (SE > 0) {
+                    Z = gw.fdM / SE;
+                    p = erfc(fabs(Z) * M_SQRT1_2);
+                }
+            }
+            free(fdM_dropped);
+
+            fprintf(fout, "GENOME\t%s\t%d\t%d\t%d\t%d",
+                    filter_chr ? filter_chr : ".",
+                    sites[0].pos, sites[n_sites-1].pos,
+                    gw.n_sites, gw.n_informative);
+            #define EM2(v) do { \
+                if (isnan(v))      fprintf(fout, "\tNA"); \
+                else if (isinf(v)) fprintf(fout, "\tInf"); \
+                else               fprintf(fout, "\t%.6g", (double)(v)); \
+            } while (0)
+            EM2(gw.D); EM2(gw.fdM);
+            EM2(gw.sum_ABBA); EM2(gw.sum_BABA);
+            EM2(gw.sum_num); EM2(gw.sum_denom);
+            EM2(SE); EM2(Z); EM2(p);
+            #undef EM2
+            fputc('\n', fout);
+            fprintf(stderr, "[fdM] Genome jackknife (%d blocks): fdM=%.4g SE=%.4g Z=%.3f p=%.4g\n",
+                    n_effective, gw.fdM, SE, Z, p);
+        }
     }
 
     if (out_path) fclose(fout);
