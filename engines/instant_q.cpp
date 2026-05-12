@@ -362,10 +362,12 @@ int main(int argc, char* argv[]){
     const char *sl_path=0,*keep_path=0,*excl_path=0;
     int fs=-1,fe=-1,wsz=100,wst=20,maxit=20,nc=1; double tol=1e-4;
     bool precomp=false,sout=false;
+    bool reference_F_used=false;
 
     for(int i=1;i<argc;i++){
         if     (!strcmp(argv[i],"--beagle")&&i+1<argc)      bpath=argv[++i];
         else if(!strcmp(argv[i],"--fopt")&&i+1<argc)        fpath=argv[++i];
+        else if(!strcmp(argv[i],"--reference_F")&&i+1<argc){fpath=argv[++i]; reference_F_used=true;}
         else if(!strcmp(argv[i],"--qinit")&&i+1<argc)       qpath=argv[++i];
         else if(!strcmp(argv[i],"--outdir")&&i+1<argc)      odir=argv[++i];
         else if(!strcmp(argv[i],"--chr")&&i+1<argc)         fchr=argv[++i];
@@ -380,6 +382,7 @@ int main(int argc, char* argv[]){
         else if(!strcmp(argv[i],"--tol")&&i+1<argc)         tol=atof(argv[++i]);
         else if(!strcmp(argv[i],"--ncores")&&i+1<argc)      nc=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--K")&&i+1<argc)           ++i;
+        else if(!strcmp(argv[i],"--input_format")&&i+1<argc) ++i; // accepted for forward compat
         else if(!strcmp(argv[i],"--precompute"))             precomp=true;
         else if(!strcmp(argv[i],"--sample_output"))          sout=true;
         else if(!strcmp(argv[i],"-h")||!strcmp(argv[i],"--help")){
@@ -391,6 +394,13 @@ int main(int argc, char* argv[]){
                 "Precomp:  --precompute --outdir <d> [--chr <n>]\n"
                 "Options:  --window_size N --window_step N --em_iter N\n"
                 "          --tol F --ncores N --sample_output\n\n"
+                "Label-switching anchor:\n"
+                "  --reference_F <f>   Alias for --fopt; documents that F came from a global run.\n"
+                "                      instant_q is fixed-F: F is held constant during EM, so\n"
+                "                      local Q columns are already anchored to the global K\n"
+                "                      ordering. Sets reference_F_used=1 in <chrom>.local_Q_meta.tsv\n"
+                "                      and emits n_anchored_snps (BEAGLE sites overlapping F).\n"
+                "                      mean_anchored_correlation is 1.0 by construction.\n\n"
                 "Flow: bamlist line i = BEAGLE ind{i} = Q row i = sample_list line i\n"
                 "--keep: only listed samples participate in EM (e.g. pruned unrelated)\n"
                 "--exclude: listed samples masked out (e.g. outliers)\n"
@@ -399,7 +409,7 @@ int main(int argc, char* argv[]){
         }
     }
 
-    if(!bpath||!fpath||!qpath){fprintf(stderr,"[iq] Need --beagle --fopt --qinit\n");return 1;}
+    if(!bpath||!fpath||!qpath){fprintf(stderr,"[iq] Need --beagle --fopt/--reference_F --qinit\n");return 1;}
     #ifdef _OPENMP
     omp_set_num_threads(nc); fprintf(stderr,"[iq] Threads: %d\n",nc);
     #endif
@@ -442,9 +452,17 @@ int main(int argc, char* argv[]){
         std::string tag=fchr?fchr:"all";
         write_summary(res,(std::string(odir)+"/"+tag+".local_Q_summary.tsv").c_str());
         if(sout) write_samples(res,reg,K,(std::string(odir)+"/"+tag+".local_Q_samples.tsv").c_str());
+        int n_anchored = (bgl.n_sites < fm.n_sites) ? bgl.n_sites : fm.n_sites;
         FILE* mf=fopen((std::string(odir)+"/"+tag+".local_Q_meta.tsv").c_str(),"w");
-        if(mf){fprintf(mf,"chrom\tK\tn_active\tn_total\tengine\tem_iter\tn_windows\tn_sites\twin_size\twin_step\n");
-            fprintf(mf,"%s\t%d\t%d\t%d\tinstant_q_v2\t%d\t%d\t%d\t%d\t%d\n",tag.c_str(),K,reg.n_active,reg.n_total,maxit,(int)res.size(),bgl.n_sites,wsz,wst);fclose(mf);}
+        if(mf){
+            fprintf(mf,"# schema_version=instant_q_v2\n");
+            fprintf(mf,"chrom\tK\tn_active\tn_total\tengine\tem_iter\tn_windows\tn_sites\twin_size\twin_step"
+                       "\treference_F_used\tn_anchored_snps\tmean_anchored_correlation\n");
+            fprintf(mf,"%s\t%d\t%d\t%d\tinstant_q_v2\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.4f\n",
+                    tag.c_str(),K,reg.n_active,reg.n_total,maxit,(int)res.size(),bgl.n_sites,wsz,wst,
+                    reference_F_used?1:0, n_anchored, 1.0);
+            fclose(mf);
+        }
     }
     return 0;
 }
