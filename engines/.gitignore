@@ -8,6 +8,7 @@ pi_NS
 fdM
 region_test
 ultrabootstrap
+fst_outlier_scan
 homolog_index_build
 homolog_index_query
 homolog_atlas_server
