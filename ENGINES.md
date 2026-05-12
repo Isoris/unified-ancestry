@@ -1,7 +1,7 @@
 # ENGINES.md — inversion-popgen-toolkit engine inventory
 
-*Last updated: 2026-04-20*
-*Status key: **STABLE** = field-tested, **WIP** = in development, **ORPHAN** = maybe abandoned*
+*Last updated: 2026-05-12*
+*Status key: **STABLE** = field-tested, **WIP** = in development, **NEW** = just-added, not yet field-tested, **ORPHAN** = maybe abandoned*
 
 ---
 
@@ -22,18 +22,34 @@ I write `???` — that's a signal that I need to look, not guess.
 
 | # | Engine | Path | Language | Status |
 |---|---|---|---|---|
-| 1 | `instant_q` | `unified_ancestry/engines/instant_q` | C++ | STABLE |
-| 2 | `region_popstats` | `unified_ancestry/engines/region_popstats` | C | STABLE |
-| 3 | `hobs_windower` | `unified_ancestry/engines/hobs_windower` | C | WIP |
+| 1 | `instant_q` | `unified_ancestry/engines/instant_q` | C++ | STABLE (+ schema v2 anchoring metadata, 2026-05) |
+| 2 | `region_popstats` | `unified_ancestry/engines/region_popstats` | C | STABLE (+ schema v3: karyotype HWE, per-SNP F_IS Wilcoxon, 2026-05) |
+| 3 | `hobs_windower` | `unified_ancestry/engines/hobs_windower` | C | WIP (+ `--groups` per-arrangement Hobs, 2026-05) |
 | 4 | `rare_sfs_pairwise` | `unified_ancestry/engines/rare_sfs_pairwise` | C | WIP |
 | 5 | `export_q_residual_dosage` | `unified_ancestry/engines/export_q_residual_dosage` | C | WIP |
+| 6 | `codon_stats` | `unified_ancestry/engines/codon_stats` | C | NEW (2026-05) |
+| 7 | `pi_NS` | `unified_ancestry/engines/pi_NS` | C | NEW (2026-05) |
+| 8 | `fdM` | `unified_ancestry/engines/fdM` | C | NEW (2026-05) |
+| 9 | `region_test` | `unified_ancestry/engines/region_test` | C | NEW (2026-05) |
+| 10 | `ultrabootstrap` | `unified_ancestry/engines/ultrabootstrap` | C | NEW (2026-05) |
+| 11 | `fst_outlier_scan` | `unified_ancestry/engines/fst_outlier_scan` | C | NEW (2026-05) |
+| 12 | `homolog_index_build` | `unified_ancestry/engines/homolog_index_build` | C | NEW (2026-05) |
+| 13 | `homolog_index_query` | `unified_ancestry/engines/homolog_index_query` | C | NEW (2026-05) |
+| 14 | `homolog_atlas_server` | `unified_ancestry/engines/homolog_atlas_server` | C | NEW (2026-05) |
 
 All sources live flat in `unified_ancestry/engines/` alongside a single
 `Makefile` that builds every target. Build: `make -C engines [target]`.
 
-*The stable engines are the ones I actually used in the LG28 analysis
-(2026-04-20). The others exist but haven't been wired into a complete
-end-to-end pipeline yet.*
+JSON schemas (input/output contracts) live in `unified_ancestry/engines/schemas/`:
+`codon_stats.{input,output}.schema.json`, `homolog_index.{binary,query.output}.schema.json`,
+`homolog_atlas_server.api.schema.json`, `homolog_atlas_config.schema.json`.
+
+*The stable engines (1–2) are the ones used in the LG28 analysis
+(2026-04-20). Engines 6–14 were added 2026-05 to support the broader
+"Diversity Atlas + Inversion Atlas" plan (πN/πS, π0/π4 fold, fdM
+introgression, FST outlier scans, homolog/paralog atlas, generic
+bootstrap/permutation testing). NEW = passes smoke tests in this
+session but not yet run on real cohort data.*
 
 ---
 
@@ -148,41 +164,301 @@ groups is the classic inversion signature).
 
 ## 4. `rare_sfs_pairwise`  ·  WIP
 
-**One-line purpose**: ???  (from directory name: pairwise rare-allele site
-frequency spectrum — measures rare allele sharing between sample pairs as a
-signal of cryptic relatedness or population structure).
+**One-line purpose**: Bergström 2020-style pairwise rare-allele sharing matrix
+— per minor-allele-count bin (doubletons, tripletons, ...), counts how many
+times each pair of samples both carry ≥1 copy of the minor allele. Signal of
+cryptic relatedness / fine-scale population structure.
 
 **Location**:
 - Source: `unified_ancestry/engines/rare_sfs_pairwise.c`
+- Binary: `unified_ancestry/engines/rare_sfs_pairwise`
 - Plotter: `unified_ancestry/plots/plot_rare_sfs_heatmap.R`
 
-**Inputs**: ???
-**Outputs**: ??? (heatmap implied by plotter name)
-**Used by**: not wired into phase_qc_shelf yet
+**Inputs**:
+- `--beagle <file.beagle.gz>` BEAGLE GL file
+- `--sample_list <file>` sample IDs (BAM-list order)
+- `--groups <file>` sample_id<TAB>group_id (for group-level aggregates)
+- `--bins 2,3,4,5` MAC bins (default 2,3,4,5)
+- `--het_threshold F` dosage threshold for "carries allele" (default 0.5)
+- `--chr <chr>`, `--range START:END` filters
+
+**Outputs**:
+- `<prefix>.bin<N>.tsv` — symmetric N×N sample matrix per MAC bin
+- `<prefix>.group_summary.bin<N>.tsv` — group-level aggregates
+
+**Citation**: Bergström A et al. (2020) Science 367:eaay5012.
+
 **Status notes**:
-- Binary compiled but I don't remember when I last ran it
-- Is this needed for the inversion paper or is it for a separate analysis?
-- **Action at lab**: read `plots/plot_rare_sfs_heatmap.R` header to find out what it expects
+- NOT orphan — clear, well-documented purpose in the source header.
+- Useful for the inversion paper IF a relatedness / structure section is
+  needed. Otherwise downstream for population-structure QC.
+- Not wired into phase_qc_shelf yet.
 
 ---
 
 ## 5. `export_q_residual_dosage`  ·  WIP
 
-**One-line purpose**: ???  (from filename: residual allele dosage after
-removing Q-inferred ancestry component. Useful for cohort-wide structure
-correction before downstream tests).
+**One-line purpose**: Q-corrected residual dosage from BEAGLE — for each
+sample × site, computes `observed − Σ_k Q_ik · 2 · f_jk`. The residual
+removes the ancestry component for cohort-wide structure correction before
+downstream association / drift tests.
 
 **Location**:
 - Source: `unified_ancestry/engines/export_q_residual_dosage.c`
+- Binary: `unified_ancestry/engines/export_q_residual_dosage`
 
-**Inputs**: ???
-**Outputs**: ???
-**Used by**: ??? (no obvious downstream consumer in current pipeline)
+**Inputs**:
+- `--beagle <file.beagle.gz>` BEAGLE GL file
+- `--fopt <file.fopt.gz>` NGSadmix F matrix (n_sites × K)
+- `--local_q <file.tsv.gz>` window-level local Q cache (output of `instant_q`)
+  OR a single global Q file
+- `--sample_list <file>`, `--chr <chr>`, `--window_size N` (default 100, must
+  match the Engine B run that produced local_q)
+
+**Outputs** (under `--out_prefix`):
+- `*.residual.beagle.gz` — BEAGLE-format residual GLs for compatibility with
+  downstream tools
+- `*.residual.dosage.tsv.gz` — marker × sample matrix of residual dosages
+- `*.sites.tsv.gz` — chrom, pos, marker
+
 **Status notes**:
-- Compiled binary exists; don't remember using it in any analysis
-- **Action at lab**: open the `.c` source, read the first 50 lines to
-  understand args. If I still don't know why I wrote it, consider it ORPHAN
-  and move to `_archive_superseded/` so it stops showing up in the engine list.
+- NOT orphan — clear, well-documented purpose in the source header.
+- Use case: pre-conditioning step before running anything sensitive to
+  population structure on the cohort.
+- Not yet wired into the inversion-paper pipeline; would slot in between
+  Engine B (Q) and any selection / association scan.
+
+---
+
+## 6. `codon_stats`  ·  NEW (2026-05)
+
+**One-line purpose**: Pairwise dN/dS / Ka/Ks + 4-fold degenerate sites from
+aligned CDS pairs. NG86 (Nei-Gojobori 1986, JC distance) and YN00
+(Yang-Nielsen 2000, κ-corrected K80 distance) are both supported in one binary.
+
+**Location**:
+- Source: `engines/codon_stats.c`
+- Binary: `engines/codon_stats`
+- Schemas: `engines/schemas/codon_stats.{input,output}.schema.json`
+
+**Inputs**: `--pairs <tsv>` (pair_id<TAB>seqA<TAB>seqB) OR `--fasta <multi.fa>`
+(consecutive records form pairs). `--method ng86|yn00`, `--kappa F`, `--ncores N`.
+
+**Outputs**: TSV with 25 columns per pair (S, N, sd, nd, sd_ts/tv, nd_ts/tv,
+n_4d_sites/diffs/ts/tv, pS, pN, dS, dN, omega, p4d, d4d). Schema v2.
+
+**Status**: NEW. Passes hand-verified smoke tests on 4 synthetic pair cases
+(identical / syn-only / mixed / gappy). Not yet run on real data.
+
+---
+
+## 7. `pi_NS`  ·  NEW (2026-05)
+
+**One-line purpose**: Population-level synonymous (πS) and non-synonymous (πN)
+diversity per CDS locus, plus the per-codon-position simpler proxies π4-fold
+(4-fold degenerate sites, neutral) and π0-fold (0-fold degenerate sites,
+always nonsyn). Per-group splits (e.g. HOM_STD / HET / HOM_INV) supported via
+`--groups` for inversion-burden comparisons.
+
+**Location**:
+- Source: `engines/pi_NS.c`
+- Binary: `engines/pi_NS`
+
+**Inputs**: `--fasta <multi.fa>` (one locus) OR `--fasta_list <tsv>` (many),
+optional `--groups seq→label.tsv`, `--coverage_factor F` or
+`--coverage_tsv f.tsv`, `--bootstrap N` (codon resampling, 95% CI), `--seed K`.
+
+**Outputs**: TSV with πS, πN, πN/πS, π4-fold, π0-fold, π0/π4, coverage-corrected
+versions, and (with --bootstrap) lower/upper 2.5%/97.5% percentiles. Schema v2.
+
+**Atlas placement**:
+- Diversity Atlas → "Functional burden / selection efficacy" panel (main).
+- Inversion Atlas → per-candidate consequence panel (with `--groups karyo.tsv`).
+
+**Status**: NEW. Numbers hand-verified on a 4-hap × 7-codon synthetic.
+
+---
+
+## 8. `fdM`  ·  NEW (2026-05)
+
+**One-line purpose**: Patterson's D + Malinsky 2015 fdM introgression statistic
+per genomic window from BEAGLE GLs. Genealogy `((P1, (P2, P3)), O)`. fdM > 0 →
+P3 → P2 gene flow; fdM < 0 → P3 → P1. Optional block-jackknife for genome-wide
+SE / Z / p.
+
+**Location**:
+- Source: `engines/fdM.c`  (in-source Patterson's-D explainer header)
+- Binary: `engines/fdM`
+
+**Inputs**: `--beagle <f.beagle.gz>`, `--sample_list`, `--pops
+P1:f,P2:f,P3:f,O:f`, `--chr`, `--windows <bed>` or `--fixed_win W:S`,
+`--jackknife_blocks N`.
+
+**Outputs**: per-window TSV (D, fdM, sum_ABBA, sum_BABA, sum_num, sum_denom,
+plus jackknife_SE / Z / p in a final GENOME row when --jackknife_blocks is set).
+
+**Use case**: works for cross-species AND within-species (P1=family A,
+P2=family B, P3=candidate donor family, O=distant outgroup family). Useful
+inside-vs-flanking inversion candidates to test "does this inversion carry
+introgressed ancestry?"
+
+**Status**: NEW. Sign-convention verified on deliberate ABBA-rich and
+BABA-rich synthetic data (caught a sign bug in the denom branch during
+testing, fixed before commit).
+
+---
+
+## 9. `region_test`  ·  NEW (2026-05)
+
+**One-line purpose**: Generic Wilcoxon + permutation test for arbitrary TSV
+value columns, partitioned by a region column. Use for "region vs rest of
+genome" comparisons on pi_NS / fdM / region_popstats outputs.
+
+**Location**:
+- Source: `engines/region_test.c`
+- Binary: `engines/region_test`
+
+**Inputs**: `--input <tsv>`, `--region_col <name>`, `--value_cols a,b,c`,
+optional `--rest_label <name>`, `--skip_regions a,b`, `--permutations N`
+(default 1000), `--seed K`, `--ncores N`.
+
+**Outputs**: per (region × value_col): n_in, n_out, mean_in/out, median_in/out,
+effect_diff, W, z, wilcoxon_p, perm_p.
+
+**Status**: NEW. Smoke-tested on 13-locus synthetic: regA (high πS) → p=0.003
+(wilcoxon) / 0.001 (permutation); regB (matches rest) → p=1.0.
+
+**Driver**: paper Bonhomme et al. methods excerpt — "Wilcoxon tests or
+resampling procedures (1000 tests) to compare diversity estimates between
+candidate regions and the rest of the genome."
+
+---
+
+## 10. `ultrabootstrap`  ·  NEW (2026-05)
+
+**One-line purpose**: Generic bootstrap CI for arbitrary TSV columns. Row mode
+(default) or block mode (`--block_col` → resample whole blocks of rows as a
+unit; keeps within-block correlation for codons-within-locus / sites-within-chrom).
+Stats: mean / median / sum / sd. Optional per-group output.
+
+**Location**:
+- Source: `engines/ultrabootstrap.c`
+- Binary: `engines/ultrabootstrap`
+
+**Inputs**: `--input <tsv>`, `--value_cols a,b,c`, `--statistic mean[,median,sum,sd]`,
+`--group_col`, `--block_col`, `--n_boot N` (default 1000), `--ci_lo/hi`,
+`--seed K`, `--ncores N`.
+
+**Outputs**: per (group × value_col × statistic): n, observed, boot_mean,
+boot_sd, boot_lo, boot_hi.
+
+**Status**: NEW. Row + block bootstrap modes verified on synthetic. For
+multi-FASTA inputs, pre-process into a TSV with locus_id as block_col.
+
+---
+
+## 11. `fst_outlier_scan`  ·  NEW (2026-05)
+
+**One-line purpose**: Genome-wide FST outlier scan, cichlid-paper style.
+Threshold + gap-aware merge of per-window FST into OUTLIER regions; HDR
+escalation if region overlaps a stronger 10-kb-window FST entry (or by
+region max_FST fallback). Distinct from inversion-candidate-confirmation:
+this scans the whole genome de novo for small differentiated regions.
+
+**Location**:
+- Source: `engines/fst_outlier_scan.c`
+- Binary: `engines/fst_outlier_scan`
+
+**Inputs**: `--input <fst_windows.tsv>` (auto-detects chrom/start/end/fst
+columns; can pass `--fst_col Fst_HOM_A_HOM_B`), `--fst_threshold` or
+`--top_pct P`, `--merge_gap_bp` (default 10000), `--stronger_threshold`
+(default 0.30), optional `--stronger_windows <tsv>` for HDR check, optional
+BED annotations (`--genes_tsv`, `--inversion_bed`, `--breakpoint_bed`,
+`--te_bed`).
+
+**Outputs**: `out_windows.tsv` (flagged input rows), `out_regions.tsv`
+(merged), `out_hdr.tsv` (HDR-class only), `out_summary.json`.
+
+**Caveat baked into the binary**: phrased as "empirical FST outliers" /
+"highly differentiated regions" — NOT "selected regions". No neutral
+calibration here.
+
+**Status**: NEW. Full smoke-test passes (16-window synthetic with stronger
+10-kb windows + inversion BED + genes TSV).
+
+---
+
+## 12. `homolog_index_build`  ·  NEW (2026-05)
+
+**One-line purpose**: Builds a sorted, mmap-friendly flat-binary homolog
+index from DIAMOND tabular (`-outfmt 6`) and/or miniprot PAF files. Manifest
+TSV input also supported. Powers the "click a gene → see all
+chains/paralogs/orthologs instantly" atlas use case.
+
+**Location**:
+- Source: `engines/homolog_index_build.c`
+- Header: `engines/homolog_index.h` (shared with query + server)
+- Binary: `engines/homolog_index_build`
+- Schema: `engines/schemas/homolog_index.binary.schema.json`
+
+**Inputs**: any combination of `--diamond <path>[=<label>]`,
+`--miniprot <path>[=<label>]`, `--manifest <tsv>`; `--out <file.holindx>`.
+
+**Outputs**: single binary `.holindx` file. Layout (little-endian, packed):
+IndexHeader → GeneRecord[sorted by name] → HitRecord[clustered by gene,
+bitscore desc] → string pool.
+
+**Status**: NEW. End-to-end tested with synthetic DIAMOND + miniprot inputs.
+
+---
+
+## 13. `homolog_index_query`  ·  NEW (2026-05)
+
+**One-line purpose**: Microsecond gene→hits lookup over a `.holindx`. mmap +
+binary search. CLI only; the HTTP server (#14) is the typical atlas hook.
+
+**Location**:
+- Source: `engines/homolog_index_query.c`
+- Binary: `engines/homolog_index_query`
+- Schema: `engines/schemas/homolog_index.query.output.schema.json`
+
+**Inputs**: `--index <f.holindx>`, `--gene <id>`, `--format tsv|json`,
+`--source diamond|miniprot`, `--min_identity F`, `--min_bitscore F`, `--limit N`.
+
+**Outputs**: stdout. TSV (default) or JSON with hits ordered by bitscore desc.
+
+**Status**: NEW. Tested.
+
+---
+
+## 14. `homolog_atlas_server`  ·  NEW (2026-05)
+
+**One-line purpose**: Tiny single-binary HTTP server over a `.holindx`. mmaps
+the index once, serves `/lookup` + `/health` + `/` as JSON with CORS open.
+Pure C + libc + POSIX sockets + pthread; thread-per-connection.
+
+**Location**:
+- Source: `engines/homolog_atlas_server.c`
+- Binary: `engines/homolog_atlas_server`
+- Schema: `engines/schemas/homolog_atlas_server.api.schema.json`
+
+**Inputs**: `--index <f.holindx>`, `--port N` (default 8765), `--bind <addr>`
+(default 127.0.0.1).
+
+**Endpoints**: `GET /lookup?gene=<id>[&source=...][&min_identity=F]
+[&min_bitscore=F][&limit=N]`; `GET /health`; `GET /`.
+
+**Status**: NEW. End-to-end tested with curl against a fresh index — `/health`,
+filtered lookups, missing-gene (`found:false`), CORS preflight all behave.
+
+**Atlas integration**:
+- `dispatchers/build_homolog_atlas.sh` orchestrates miniprot (strict/chain/loose
+  presets) + optional DIAMOND blastp + index build in one command.
+- `dispatchers/run_miniprot_chain.sh` is the lower-level single-target miniprot
+  wrapper.
+- `dispatchers/homolog_atlas.R` is the R wrapper exposing
+  `atlas_lookup()`, `atlas_orthologs()`, `atlas_paralogs()`,
+  `codon_stats_run()`, `atlas_build()`, `atlas_health_check()` to atlas pages.
 
 ---
 
@@ -191,8 +467,18 @@ correction before downstream tests).
 ### `STEP_UA_C_snp_q_support.py`
 
 **Location**: `unified_ancestry/steps/STEP_UA_C_snp_q_support.py`
-**Status**: ??? — header says "MARKER CLASSIFICATION" but I need to read more.
-**Action**: re-read when reviewing the ancestry pipeline.
+**One-line (from header)**: Per-SNP soft support vectors to Q components.
+For each SNP, computes Pearson |corr| of dosage vs each Q column, normalizes
+to soft weights, classifies markers as `dominant_single_Q` /
+`dominant_plus_secondary` / `mixed_Q_support` / `diffuse_Q_support` /
+`low_information`. Aggregates into windows with coherence score, switch counts,
+dominant Q.
+**Inputs**: `--beagle`, `--q_cache_dir` (Engine B output) OR `--qopt` (global),
+`--sample_list`, `--K`, `--chr`.
+**Outputs** (in `--outdir`): `q_support_per_snp.tsv`, `q_support_windows.tsv`.
+**Status**: WIP. Origin: adapted from `MODULE_2C/helpers/compute_snp_support.py +
+summarize_windows.py`. Reads Q from Engine B cache (instant_q) instead of old
+Module 2B tables.
 
 ### `STEP_UA_D_internal_ancestry_composition.py` (formerly `nested_composition.py`)
 
@@ -204,33 +490,64 @@ correction before downstream tests).
 ### `STEP_UA_E_candidate_classifier.py`
 
 **Location**: `unified_ancestry/steps/STEP_UA_E_candidate_classifier.py`
-**One-line (from header)**: Classify inversion candidates from ???.
-**Status**: ??? — sounds like it could be important for phase_9_classification.
+**One-line (from header)**: Classify inversion candidates from Q support
+windows + Engine B per-sample Q. For each candidate, overlaps Q-support windows
+and produces `coherent_q_loaded_core`, `likely_mixed_background`,
+`likely_parasite_windows`, plus `ancestry_class` (`ancestry_driven` /
+`structural` / `mixed`) and `internal_structure_type` (from
+`STEP_UA_D` nested-composition output).
+**Inputs**: `--candidates`, `--q_windows` (output of `STEP_UA_C`),
+`--q_cache_dir`, `--nested` (output of `STEP_UA_D`), `--K`.
+**Outputs**: `candidate_classification.tsv` under `--outdir`.
+**Status**: WIP. Origin: `MODULE_2C/helpers/summarize_candidates.py +` new logic.
+Important downstream of phase_9_classification.
 
 ### `STEP_UA_F_export_module5b.py`
 
+**One-line (from header)**: Export marker/window annotation strips for
+Module 5B (heatmap + regime track + candidate segmentation views).
 **Location**: `unified_ancestry/steps/STEP_UA_F_export_module5b.py`
-**One-line (from header)**: Export marker/window annotation strips.
-**Status**: ??? — references phase_5, presumably annotation export.
+**Inputs**: `--snp_support` (output of `STEP_UA_C`),
+`--window_support` (also from `STEP_UA_C`), `--K`.
+**Outputs** (in `exports_for_module5b/`):
+- `marker_strip_dominant_Q.tsv` — per-SNP dominant ancestry + colour
+- `marker_strip_entropy.tsv` — per-SNP support entropy
+- `marker_strip_confidence.tsv` — per-SNP class + confidence
+- `window_strip_coherence.tsv` — per-window coherence + dominant Q
+- `module5b_integration_table.tsv` — full per-SNP table for Module 5B
+**Status**: WIP. Origin: `MODULE_2C/helpers/export_for_5b.py`.
 
 ---
 
-## Registries — related but separate
+## Registries — producer / consumer split (NOT competing)
 
-Two registry systems coexist (likely needs unification):
+Two halves of one registry system live in two repos:
 
-### A. `inversion-popgen-toolkit/registries/` (the "chat 16" generation)
+### A. `inversion-popgen-toolkit/registries/api/` (READER side)
 
-- Three registries (sample, interval, results) + a loader in bash/R/python
-- Has integration tests (`test_results_registry.py`, `test_interval_registry_extensions.R`, `test_sample_registry_extensions.R`)
-- `registry_loader.R` is "the unified entry point for the three registries"
-- **Status**: partially working, tests exist but WIP
+- `registry_loader.R` — "the unified entry point for the three registries"
+  (sample / interval / results). Looked up by `dispatchers/region_stats_dispatcher.R`
+  via a search path (`registries/api/R/registry_loader.R` first, with
+  fallbacks).
+- Has integration tests (`test_results_registry.py`,
+  `test_interval_registry_extensions.R`, `test_sample_registry_extensions.R`).
+- **Status**: partially working, tests exist but WIP.
 
-### B. `unified_ancestry/registries/build_registries.py`
+### B. `unified_ancestry/registries/build_registries.py` (WRITER side)
 
-- A single Python builder script
-- **Status**: ??? — is this the builder that feeds A's registries, or a parallel system?
-- **Action at lab**: open this file, read first 30 lines, figure out what it emits and where it writes to. If it writes to the same tables A reads from, it's the builder → mark clearly. If it's parallel, decide which wins.
+- Single Python builder script. Origin: `MODULE_2B_Step2/helpers/make_intervals.py +
+  make_subsets.py + make_cov_registry.py`.
+- WRITES TO:
+  - `registries/interval_registry.tsv` — all intervals at all scales
+  - `registries/sample_subsets.tsv` — named sample subsets with paths
+  - `registries/cov_registry.tsv` — PCAngsd covariance file registry
+- Inputs: `--config 00_ancestry_config.sh`, optional `--candidates`.
+- **Status**: builder for the TSVs A consumes. Resolved 2026-05-12: **A and B
+  are producer/consumer, NOT parallel systems.** B writes the registry TSVs
+  in this repo; A's loader reads them from the sister inversion-popgen-toolkit
+  repo (via the dispatcher's search path).
+- No further unification needed; one is the API surface (R/Python), the other
+  is the population step.
 
 ---
 
@@ -259,11 +576,27 @@ Two registry systems coexist (likely needs unification):
 ## Open questions for future-me
 
 1. Should `rare_sfs_pairwise` and `export_q_residual_dosage` be promoted to
-   "STABLE" after being wired into a real analysis, or deprecated if they
-   don't find a use in the inversion paper?
-2. Is registry system A or B canonical? Pick one and move forward.
-3. Is there a sixth engine I haven't found yet? (If the inventory walker
-   reports something new under `unified_ancestry/engines/` next month, add it
-   here immediately.)
-4. Should Engine H be added as a Q04 diagnostic panel? If yes, that's a
-   clean v2.2 feature for phase_qc_shelf.
+   "STABLE"? Both are NOT orphan (clear purpose, documented headers).
+   Both have non-zero startup cost to wire into the inversion paper — decide
+   at lab whether the relatedness/structure track (`rare_sfs_pairwise`) and
+   the Q-residual pre-conditioning step (`export_q_residual_dosage`) earn
+   their keep for this paper or get parked until next.
+2. ~~Is registry system A or B canonical?~~ Resolved 2026-05-12. **They are
+   producer/consumer.** `unified_ancestry/registries/build_registries.py`
+   writes the three TSVs; `inversion-popgen-toolkit/registries/api/R/
+   registry_loader.R` reads them. No conflict, no consolidation needed.
+3. ~~Is there a sixth engine I haven't found?~~ Resolved 2026-05-12. **Yes —
+   nine new ones** (codon_stats, pi_NS, fdM, region_test, ultrabootstrap,
+   fst_outlier_scan, homolog_index_build/_query, homolog_atlas_server),
+   all documented above as #6–14.
+4. Should Engine H be added as a Q04 diagnostic panel? Still open — clean
+   v2.2 feature for phase_qc_shelf when Engine H goes STABLE.
+5. **New 2026-05**: should the two-mode architecture (candidate-vs-flanks
+   AND genome-scan) be generalized beyond `fst_outlier_scan`? `pi`, `dXY`,
+   `dA`, `Tajima's D` would all benefit from the same pattern. Plan: rename
+   `fst_outlier_scan` → `outlier_scan` (statistic-agnostic, `--stat_col`,
+   `--direction high|low|abs`) + add a sibling `candidate_vs_flanks` binary.
+   Scope explicitly excludes LD / ROH / VESM for now (per 2026-05 decision).
+6. **New 2026-05**: the 9 new engines all pass smoke tests on synthetic
+   data but NONE have been run on the real cohort yet. Once any is run
+   in anger, promote NEW → WIP, then to STABLE on second use.
