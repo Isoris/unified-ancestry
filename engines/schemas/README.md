@@ -37,3 +37,31 @@ adding (xpehh, iHS, +). Older engines (codon_stats, region_popstats, etc.)
 still rely on TSV outputs only; their activator schemas are planned but not
 yet written — the dispatcher can validate activator inputs by hand for those
 until they catch up. Filling in those gaps is a separate ticket.
+
+## Caching is the server's job
+
+`engines/popstats_dispatch` is stateless: activator JSON in → engine run →
+extractor JSON streamed out. There is no built-in cache.
+
+Whatever HTTP server fronts the dispatcher is the right layer to memoize
+responses, because the server already:
+
+- holds the raw activator JSON before it's parsed (cheap content hash);
+- knows the deployment-specific storage backend (Redis, filesystem, in-memory
+  LRU, …);
+- can enforce per-user or per-route TTL / eviction policy;
+- can decide cache-key canonicalization (drop `request_id`, sort keys, etc.).
+
+Caching strategy recommended at the server layer:
+
+1. Compute `key = hash(canonicalize(activator - {request_id}))`.
+2. Resolve referenced input file mtimes (`inputs.beagle`, `inputs.windows_tsv`,
+   `inputs.candidates_bed`, …); include those mtimes in the cache key OR
+   invalidate the entry when any input is newer than the stored response.
+3. Cache the extractor JSON verbatim. It's already the wire-format payload.
+4. On hit: stream the cached bytes to the client; on miss: pipe the activator
+   into `popstats_dispatch`, capture stdout, store, stream.
+
+If at some future point this turns out to be the wrong split (e.g. CLI users
+also want caching), `--cache_dir` can be added to the dispatcher later as
+opt-in without breaking the stateless default.

@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "analysis_capability.entry.schema.json",
+  "title": "Analysis capability registry entry",
+  "description": "One self-describing entry per registered analysis. The popstats / atlas server loads the whole registry (an array of these) at startup; for each incoming request it looks up the matching analysis_type and decides whether to run live, hit a cache, or read from precompute, using `execution_modes` + `default_policy` modulated by the cost-based classifier (see cost-based_usage_data-management-policy-prompt.md).",
+  "type": "object",
+  "required": [
+    "analysis_type",
+    "module",
+    "provides",
+    "requires",
+    "supported_execution_modes",
+    "result_schema",
+    "entrypoint"
+  ],
+  "field_ownership": {
+    "engine_side": [
+      "analysis_type", "module", "provides", "requires",
+      "supported_execution_modes", "result_schema", "entrypoint",
+      "engine_binding_ref", "deprecated", "notes"
+    ],
+    "deployment_side": [
+      "default_policy", "allowed_policies", "cost_class", "reuse_scope"
+    ],
+    "rule": "An engine-side manifest (shipped by the toolkit repo, e.g. unified-ancestry/registries/analysis_capability.json) ONLY fills engine_side fields — those describe what the binary is technically capable of. The downstream server's deployment registry MERGES the engine manifest with deployment_side fields (cost_class, default_policy, ...) — those describe what THIS deployment will actually do with the analysis. Same schema, two readers."
+  },
+  "additionalProperties": false,
+  "properties": {
+    "analysis_type": {
+      "type": "string",
+      "description": "Stable id of the analysis (e.g. 'fst_profile', 'pi_NS', 'iHS_window'). Used as the discriminator when routing requests."
+    },
+    "module": {
+      "type": "string",
+      "description": "Owning module / engine binary (e.g. 'popstats', 'codon_stats', 'fdM'). Multiple analyses can belong to one module."
+    },
+    "provides": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Result-schema version tags this analysis emits, e.g. ['fst_profile_v1', 'fst_profile_v2']. Clients select by version."
+    },
+    "requires": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Logical inputs this analysis needs. Free-form tokens; suggested vocabulary: 'beagle_gl', 'sample_list', 'groups', 'karyotype', 'interval', 'candidates_bed', 'windows_tsv', 'cache', 'genome_fa', 'gff', etc. Used by the server for pre-flight validation and for matching against what the request supplies."
+    },
+    "supported_execution_modes": {
+      "type": "object",
+      "description": "ENGINE-SIDE field. Which storage tiers the engine is even *technically* capable of feeding. True = the binary's output is shaped right for the mode; false = the engine actively does not support it. The deployment server further narrows this with `allowed_policies`.",
+      "additionalProperties": false,
+      "required": ["live", "memory_cache", "disk_cache", "precompute", "committed"],
+      "properties": {
+        "live":         { "type": "boolean", "description": "Engine returns small enough output fast enough to be served live (no caching needed)." },
+        "memory_cache": { "type": "boolean", "description": "Output is small and safe to keep in RAM." },
+        "disk_cache":   { "type": "boolean", "description": "Output is deterministic given inputs — safe to memoize on disk by hash." },
+        "precompute":   { "type": "boolean", "description": "Engine can be run offline and its output read back later." },
+        "committed":    { "type": "boolean", "description": "Output is a stable artifact suitable for git / release packaging." }
+      }
+    },
+    "default_policy": {
+      "type": "string",
+      "enum": ["live", "memory_cache", "disk_cache", "precompute", "committed"],
+      "description": "DEPLOYMENT-SIDE field. Policy applied by the server when the cost-based classifier has no opinion. Must be a mode set to true in `supported_execution_modes`. Engine repos leave this absent; deployment repos fill it."
+    },
+    "allowed_policies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["live", "memory_cache", "disk_cache", "precompute", "committed"]
+      },
+      "description": "DEPLOYMENT-SIDE field. Explicit allow-list (a subset of `supported_execution_modes`-true). Useful when the engine can technically do a mode but the deployment forbids it (e.g. 'no live for >1Mb intervals'). Engine repos leave this absent."
+    },
+    "cost_class": {
+      "type": "string",
+      "enum": ["cheap", "medium", "expensive", "very_expensive"],
+      "description": "DEPLOYMENT-SIDE field. Default cost class for typical-shape requests in THIS deployment. Engine repos leave it absent; the deployment fills it (the same engine can be 'cheap' for a tiny cohort and 'expensive' for a 226-sample one)."
+    },
+    "reuse_scope": {
+      "type": "string",
+      "description": "DEPLOYMENT-SIDE field. Free-form tag describing the natural unit of reuse for THIS deployment. Suggested values: 'candidate' / 'chromosome' / 'cohort' / 'genome' / 'session' / 'ephemeral'. Engine repos leave it absent."
+    },
+    "result_schema": {
+      "type": "string",
+      "description": "Output JSON schema id (e.g. 'fst_result_v1'). Should match one of the entries in `provides` and correspond to a schema file the server can validate against."
+    },
+    "entrypoint": {
+      "type": "string",
+      "description": "How the server invokes this analysis. For engine-binary entrypoints this is the binary name (e.g. 'popstats_fst'); for dispatcher-routed analyses it's the statistic discriminator (e.g. 'outlier_scan' — handed to popstats_dispatch via the activator's `.statistic` field)."
+    },
+    "engine_binding_ref": {
+      "type": "string",
+      "description": "Optional. Path or $id of the activator schema whose `engine_binding` block describes the CLI flag mapping. Lets the dispatcher build argv off the schema instead of hardcoding."
+    },
+    "deprecated": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, the server should warn callers that the analysis is being phased out."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-form notes for humans reading the registry."
+    }
+  },
+  "consistency_rules": {
+    "default_in_modes":    "default_policy (deployment side) MUST correspond to a `supported_execution_modes` entry set to true.",
+    "allowed_in_modes":    "Every value in allowed_policies (deployment side) MUST correspond to a `supported_execution_modes` entry set to true.",
+    "provides_has_schema": "result_schema SHOULD appear in `provides` (canonical version) OR be a strict superset version."
+  },
+  "engine_side_example": {
+    "comment": "What unified-ancestry (or any toolkit repo) ships in its registries/analysis_capability.json. NO policy fields.",
+    "analysis_type":   "outlier_scan",
+    "module":          "outlier_scan",
+    "provides":        ["outlier_scan_v1"],
+    "requires":        ["windows_tsv", "stat_col", "direction"],
+    "supported_execution_modes": {
+      "live":         true,
+      "memory_cache": true,
+      "disk_cache":   true,
+      "precompute":   true,
+      "committed":    true
+    },
+    "result_schema":   "outlier_scan_v1",
+    "entrypoint":      "outlier_scan",
+    "engine_binding_ref": "engines/schemas/outlier_scan.activator.schema.json#/engine_binding"
+  },
+  "deployment_side_example": {
+    "comment": "What a downstream server adds on top, per-deployment. Policy fields only.",
+    "analysis_type":   "outlier_scan",
+    "default_policy":  "disk_cache",
+    "allowed_policies": ["disk_cache", "precompute", "committed"],
+    "cost_class":      "medium",
+    "reuse_scope":     "candidate"
+  }
+}

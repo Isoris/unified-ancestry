@@ -23,6 +23,7 @@ PREFIX  ?= $(HOME)/.local
 CPP_BINS = instant_q
 C_BINS   = region_popstats rare_sfs_pairwise export_q_residual_dosage hobs_windower \
            codon_stats pi_NS fdM region_test ultrabootstrap outlier_scan candidate_vs_flanks xpehh iHS \
+           popstats_dispatch \
            homolog_index_build homolog_index_query homolog_atlas_server
 ALL_BINS = $(CPP_BINS) $(C_BINS)
 
@@ -63,6 +64,9 @@ outlier_scan: outlier_scan.c
 
 candidate_vs_flanks: candidate_vs_flanks.c
 	$(CC) $(CFLAGS) -o $@ $< -lm -fopenmp
+
+popstats_dispatch: popstats_dispatch.c
+	$(CC) -O3 -march=native -Wall -o $@ $< -lm
 
 xpehh: xpehh.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
