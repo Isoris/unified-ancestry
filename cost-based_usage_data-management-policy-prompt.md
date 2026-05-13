@@ -23,22 +23,49 @@ instruction *"audit this repo per the policy below"*.
 | > 5 sec              | project cache or precompute             |
 | minutes – hours      | always precompute / shared layer        |
 
-## Decision matrix (data class → tier)
+## How to classify a request — DO NOT hardcode by analysis name
 
-| data class                                       | tier                |
-|--------------------------------------------------|---------------------|
-| UI formatting / colors / labels                  | live                |
-| simple filter / sort / rank                      | live                |
-| tooltip from already-loaded JSON                 | browser memory only |
-| small summary from one result.json               | live                |
-| FST for one small interval                       | live (maybe)        |
-| FST for 50 candidates                            | disk/project cache  |
-| local PCA coordinates                            | precompute          |
-| ancestry Q windows                               | precompute          |
-| ROH genome-wide summaries                        | precompute          |
-| π / dXY / Tajima's D window tracks               | project cache       |
-| random parameter exploration                     | tmp cache or none   |
-| final reviewed / manuscript result               | committed cache     |
+> "FST is cache" / "PCA is precompute" is wrong on principle. The same
+> analysis can land in any tier depending on the *instance* — input size,
+> candidate count, parameter combination, who's asking. The policy is a
+> **classifier**, not a list.
+
+For each request that hits the system, route it by **two registered
+properties of the request, not by the analysis name**:
+
+1. **`cost_class`** — measured or declared compute cost of *this
+   request shape*. Bucketed by the latency table above.
+2. **`reuse_pattern`** — how often *this same request* is expected to
+   be issued again. One of:
+   - `one_shot`               — never re-requested
+   - `session_repeat`         — repeated in the same UI session
+   - `cross_session_determ`   — same hash, deterministic, reused across sessions
+   - `shared_layer`           — every user / page wants it
+   - `exploratory`            — random parameter sweep, rarely hits the same key twice
+   - `reviewed_artifact`      — saved, signed off, manuscript-bound
+
+Apply the classifier:
+
+```
+cost_class       × reuse_pattern               →  tier
+─────────────────────────────────────────────────────────────────────────
+cheap            × any                         →  live
+medium           × one_shot                    →  live
+medium           × session_repeat              →  memory/session cache
+medium           × cross_session_determ        →  disk/project cache
+expensive        × one_shot / exploratory      →  live or tmp cache
+expensive        × cross_session_determ        →  disk/project cache (hashed)
+expensive        × shared_layer                →  precompute
+very_expensive   × any                         →  precompute (always)
+any              × reviewed_artifact           →  committed / saved
+```
+
+The **same analysis** (e.g. "FST scan") routes differently in different
+contexts:
+
+- FST inside a 5 kb candidate, one user, one click → `medium` × `one_shot` → live
+- FST across 50 candidates, scripted batch → `expensive` × `cross_session_determ` → disk cache
+- FST for the genome-wide background panel every atlas user reads → `very_expensive` × `shared_layer` → precompute
 
 ## The five storage tiers
 
@@ -51,52 +78,65 @@ instruction *"audit this repo per the policy below"*.
    Atlas sessions read; never re-compute interactively.
 5. **Committed / saved** — git or release package. Reviewed, signed off.
 
-## Mapping by usage pattern (cross-axis)
+## What the audit produces — per registered module/analysis
 
-| reuse pattern                              | typical tier           |
-|--------------------------------------------|------------------------|
-| computed once, used everywhere             | precompute             |
-| computed often, deterministic              | disk/project cache     |
-| computed often, depends on session params  | memory/session cache   |
-| computed rarely, exploratory               | tmp cache or no cache  |
-| computed in the moment, displayed only     | live                   |
+The job isn't to slap every "FST" call into the same tier. The job is
+to find every **registered module / analysis / endpoint** in the repo,
+read off its declared inputs and typical request shape, and *classify
+that module's instances*. A module can have multiple rows in the audit
+if it's called in materially different shapes.
+
+For each module, the audit walks its known callers and produces one
+row per (module × request-shape) pair.
 
 ## Audit procedure (what the assistant should do)
 
-For each distinct computed-result type in the target repo:
+For each **registered module / analysis / endpoint** in the target
+repo, AND for each materially different **request shape** the module
+is called with:
 
-1. **Find** — grep for compute-emitting code paths (functions that
-   write JSON / TSV / RDS / pickle; HTTP endpoints; scheduled jobs).
-2. **Estimate cost** — read the code, identify input size + algorithm
-   complexity. If unsure, run on representative inputs and time it.
-3. **Estimate reuse** — does the same result get requested again by
-   the same user in the same session? Across sessions? Across users?
-4. **Classify** — pick a tier from the latency table OR the decision
-   matrix; cross-check with the reuse pattern.
-5. **Recommend a storage path** — relative path under
-   `popstats_cache/`, `<repo>/cache/`, etc.
-6. **Specify an invalidation rule** — input-file mtimes, content hash,
-   or "manual / never".
-7. **Note current behavior** — is the code already doing this? If
-   not, what's the mismatch?
+1. **Find the module** — registry file (e.g. `registries/*.tsv`,
+   `engines/Makefile`, dispatcher routes, HTTP routes). Cite file:line.
+2. **Find the request shapes** — what inputs and parameter ranges does
+   the module get called with in practice? Read the dispatchers,
+   atlas pages, scheduled jobs. Group similar shapes together.
+3. **Estimate `cost_class`** — per request shape. Read the code,
+   identify input size × algorithm complexity. If unsure, run on
+   representative inputs and time it. Bucket per the latency table.
+4. **Estimate `reuse_pattern`** — per request shape. One of:
+   `one_shot` / `session_repeat` / `cross_session_determ` /
+   `shared_layer` / `exploratory` / `reviewed_artifact`.
+5. **Classify** — apply the cost × reuse table above. The same module
+   can produce several rows in the audit if it's called in different
+   shapes that route to different tiers.
+6. **Recommend a storage path** — concrete relative path. Examples:
+   `popstats_cache/precomputed/<module>/<chrom>/result.json` for
+   precompute, `popstats_cache/computed/<module>/<request_hash>/result.json`
+   for hashed cache, `null` for live.
+7. **Specify an invalidation rule** — input-file mtimes, content
+   hash, registry version, or "manual / never".
+8. **Note current behavior** — does the code already route this
+   request shape to that tier? If not, describe the mismatch.
 
 ## Output the audit as
 
-`cost_audit.tsv` — one row per result type, columns:
+`cost_audit.tsv` — one row per (module × request-shape) pair, columns:
 
 | col | meaning |
 |---|---|
-| `result_type`    | short id (e.g. `fst_per_window`, `local_Q`) |
-| `description`    | one-sentence what-it-is |
-| `where_emitted`  | file:line of the compute / writer |
-| `cost_estimate`  | rough wall-time on representative input |
-| `reuse_pattern`  | once / session / cross-session / shared |
-| `recommended_tier` | live / memory / disk / precompute / committed |
-| `recommended_path` | concrete path |
-| `invalidation`   | mtime / content-hash / manual / never |
-| `current_behavior` | what the code does today |
-| `mismatch`       | "ok" if current_behavior matches recommended; else describe |
-| `priority`       | low / medium / high to fix |
+| `module`           | registry id of the analysis / endpoint (e.g. `fst_window`, `local_Q`, `pi_NS`) |
+| `request_shape`    | what's different about this call vs other rows of the same module (e.g. "single 5 kb interval", "50-candidate batch", "genome-wide background") |
+| `description`      | one-sentence what-it-is for this shape |
+| `where_registered` | file:line of the registry / route / dispatcher binding |
+| `cost_class`       | cheap / medium / expensive / very_expensive |
+| `cost_estimate`    | rough wall-time on representative input |
+| `reuse_pattern`    | one_shot / session_repeat / cross_session_determ / shared_layer / exploratory / reviewed_artifact |
+| `recommended_tier` | live / memory / disk / precompute / committed (from the classifier) |
+| `recommended_path` | concrete path or `null` for live |
+| `invalidation`     | mtime / content-hash / registry-version / manual / never |
+| `current_behavior` | what the code does today for this shape |
+| `mismatch`         | "ok" if current_behavior matches recommended; else describe |
+| `priority`         | low / medium / high to fix |
 
 Plus `cost_audit.md` — short prose summary:
 - which tiers are over-/under-used,
