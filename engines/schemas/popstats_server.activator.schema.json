@@ -8,16 +8,19 @@
   "discriminator": { "propertyName": "statistic" },
   "oneOf": [
     { "$ref": "xpehh.activator.schema.json" },
-    { "$ref": "iHS.activator.schema.json" }
+    { "$ref": "iHS.activator.schema.json" },
+    { "$ref": "outlier_scan.activator.schema.json" }
   ],
   "supported_statistics": [
     "xpehh",
-    "iHS"
+    "iHS",
+    "outlier_scan"
   ],
   "planned_statistics_not_yet_specced": [
+    "candidate_vs_flanks",
     "fst", "pi", "dxy", "dA", "tajima_D",
     "pi_NS", "pi_4fold", "pi_0fold",
-    "fdM", "fst_outlier_scan", "region_test", "ultrabootstrap"
+    "fdM", "region_test", "ultrabootstrap"
   ],
   "dispatcher_contract": {
     "validate_step": "JSON Schema validate against this umbrella schema; reject with HTTP 400 + the schema validation error if invalid.",

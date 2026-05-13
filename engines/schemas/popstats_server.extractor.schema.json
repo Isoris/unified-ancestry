@@ -8,7 +8,8 @@
   "discriminator": { "propertyName": "statistic" },
   "oneOf": [
     { "$ref": "xpehh.extractor.schema.json" },
-    { "$ref": "iHS.extractor.schema.json" }
+    { "$ref": "iHS.extractor.schema.json" },
+    { "$ref": "outlier_scan.extractor.schema.json" }
   ],
   "common_fields_in_all_responses": {
     "schema_version": "Engine version tag (e.g. 'xpehh_v1'). Used by clients to opt into known shapes.",

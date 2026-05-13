@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "outlier_scan.extractor.schema.json",
+  "title": "outlier_scan extractor (response)",
+  "description": "JSON response shape the popstats server returns for a genome-wide outlier + HDR scan. Dispatcher builds this from the TSV/JSON outputs of engines/outlier_scan.",
+  "type": "object",
+  "required": ["schema_version", "statistic", "status", "metadata", "regions"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "outlier_scan_v1" },
+    "statistic":      { "type": "string", "const": "outlier_scan" },
+    "request_id":     { "type": "string" },
+    "status":         { "type": "string", "enum": ["ok", "empty", "error"] },
+    "error":          { "type": "string" },
+
+    "metadata": {
+      "type": "object",
+      "required": ["comparison_id", "stat_name", "direction", "threshold",
+                   "threshold_source", "stronger_threshold", "merge_gap_bp",
+                   "n_input_windows", "n_outlier_windows",
+                   "n_outlier_regions", "n_HDR_regions",
+                   "total_outlier_bp", "total_HDR_bp"],
+      "additionalProperties": false,
+      "properties": {
+        "comparison_id":          { "type": "string" },
+        "group_a":                { "type": "string" },
+        "group_b":                { "type": "string" },
+        "window_mode":            { "type": "string" },
+        "stat_name":              { "type": "string", "description": "Mirrors the activator's stat.name; column prefix in TSV equivalents." },
+        "direction":              { "type": "string", "enum": ["high", "low", "abs"] },
+        "threshold":              { "type": "number", "description": "Cutoff actually used (after --top_pct resolution if applicable)." },
+        "threshold_source":       { "type": "string", "enum": ["absolute", "top_pct"] },
+        "top_pct":                { "type": "number" },
+        "stronger_threshold":     { "type": "number" },
+        "merge_gap_bp":           { "type": "integer" },
+        "stronger_windows_used":  { "type": "boolean" },
+        "n_input_windows":        { "type": "integer" },
+        "n_outlier_windows":      { "type": "integer" },
+        "n_outlier_regions":      { "type": "integer" },
+        "n_HDR_regions":          { "type": "integer" },
+        "total_outlier_bp":       { "type": "integer" },
+        "total_HDR_bp":           { "type": "integer" },
+        "genome_bp":              { "type": "integer" },
+        "percent_genome_outlier": { "type": "number" },
+        "percent_genome_HDR":     { "type": "number" },
+        "engine_version":         { "type": "string" },
+        "note":                   { "type": "string", "default": "Empirical outliers; not a neutral-calibrated selection scan." }
+      }
+    },
+
+    "regions": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Region" }
+    },
+    "hdr_regions": {
+      "type": "array",
+      "description": "Subset of `regions` where contains_strong_window == true. Server may omit when empty.",
+      "items": { "$ref": "#/definitions/Region" }
+    },
+    "windows": {
+      "type": "array",
+      "description": "Per-window flagged rows. Server may omit unless requested via inputs.out_windows.",
+      "items": { "$ref": "#/definitions/FlaggedWindow" }
+    }
+  },
+  "definitions": {
+    "Region": {
+      "type": "object",
+      "required": ["region_id", "chrom", "start", "end", "length_bp",
+                   "n_windows", "stat_mean", "stat_median",
+                   "stat_max", "stat_min",
+                   "threshold_used", "stronger_threshold_used",
+                   "contains_strong_window", "class"],
+      "additionalProperties": false,
+      "properties": {
+        "region_id":              { "type": "string" },
+        "chrom":                  { "type": "string" },
+        "start":                  { "type": "integer" },
+        "end":                    { "type": "integer" },
+        "length_bp":              { "type": "integer" },
+        "n_windows":              { "type": "integer" },
+        "n_variants_total":       { "type": ["integer", "null"] },
+        "stat_mean":              { "type": "number" },
+        "stat_median":            { "type": "number" },
+        "stat_max":               { "type": "number" },
+        "stat_min":               { "type": "number" },
+        "threshold_used":         { "type": "number" },
+        "stronger_threshold_used":{ "type": "number" },
+        "contains_strong_window": { "type": "boolean" },
+        "class":                  { "type": "string", "enum": ["OUTLIER", "HDR"] },
+        "nearest_gene":           { "type": "string" },
+        "overlaps_inversion_candidate": { "type": "boolean" },
+        "overlaps_breakpoint":          { "type": "boolean" },
+        "overlaps_TE_hotspot":          { "type": "boolean" },
+        "notes":                  { "type": "string" }
+      }
+    },
+    "FlaggedWindow": {
+      "type": "object",
+      "required": ["chrom", "start", "end", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "chrom":       { "type": "string" },
+        "start":       { "type": "integer" },
+        "end":         { "type": "integer" },
+        "value":       { "type": "number" },
+        "n_variants":  { "type": ["integer", "null"] }
+      }
+    }
+  },
+  "sign_convention": {
+    "high": "value >= threshold; large values are the outliers (FST, dXY).",
+    "low":  "value <= threshold; small values are the outliers (π troughs).",
+    "abs":  "|value| >= threshold; extreme tails on either side are outliers (fdM, Tajima's D)."
+  }
+}
