@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "interval_registry.schema.json",
+  "title": "interval_registry.tsv row schema",
+  "description": "One row per interval at any scale (genome, chromosome, SNP window, candidate region). Produced by registries/build_registries.py. TSV with these columns in this order.",
+  "type": "object",
+  "tsv_columns_in_order": [
+    "interval_id", "scale_type", "chrom", "start", "end",
+    "interval_bp", "window_family", "mode", "n_markers", "note"
+  ],
+  "required": ["interval_id", "scale_type", "chrom", "start", "end",
+                "interval_bp", "window_family", "mode", "n_markers"],
+  "additionalProperties": false,
+  "properties": {
+    "interval_id": {
+      "type": "string",
+      "description": "Stable id. Format: 'INT_GENOME' for the whole-genome row, 'INT_CHR_<chrom>' for chromosomes, 'INT_<6-digit-seq>' for windows, '<candidate_id>' (free-form) for candidates."
+    },
+    "scale_type": {
+      "type": "string",
+      "enum": ["genome", "chromosome", "window", "region"],
+      "description": "Logical scale of this interval. 'window' = SNP window; 'region' = candidate inversion / annotated locus."
+    },
+    "chrom": {
+      "type": "string",
+      "description": "Chromosome name. 'genome' for the whole-genome row."
+    },
+    "start":       { "type": "integer", "minimum": 0, "description": "0-based start coordinate; 0 for chromosome/genome rows." },
+    "end":         { "type": "integer", "minimum": 0, "description": "Exclusive end coordinate." },
+    "interval_bp": { "type": "integer", "minimum": 0, "description": "end − start." },
+    "window_family": {
+      "type": "string",
+      "description": "Tag identifying the construction recipe: 'genome', 'chromosome', 'snp_<N>' (e.g. 'snp_100'), 'candidate'."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["genome_direct", "chromosome_direct", "snp_window", "candidate_direct"],
+      "description": "How this interval is meant to be consumed by downstream engines."
+    },
+    "n_markers": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "BEAGLE-marker count within this interval (precomputed for fast filtering)."
+    },
+    "note": {
+      "type": "string",
+      "description": "Free-form annotation; for SNP windows, holds 'snps=<N>'; for candidates, the candidate_id."
+    }
+  },
+  "consistency_rules": {
+    "interval_bp_eq_end_minus_start": "interval_bp MUST equal end − start.",
+    "genome_row":   "scale_type='genome' rows MUST have chrom='genome' and interval_id='INT_GENOME'.",
+    "chromosome_row": "scale_type='chromosome' rows MUST have start=0 and interval_id='INT_CHR_<chrom>'."
+  }
+}

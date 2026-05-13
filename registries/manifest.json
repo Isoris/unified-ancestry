@@ -1,0 +1,65 @@
+{
+  "registry_manifest_version": 1,
+  "owner_repo": "unified-ancestry",
+  "last_updated": "2026-05-13",
+  "description": "Single-entry-point manifest listing every registry this repo exposes. Downstream consumers (atlas server, sister inversion-popgen-toolkit) read this first to discover what's available, then pull the individual registry files. Each entry points at its data file AND its JSON Schema so the consumer can validate without guessing.",
+
+  "registries": [
+    {
+      "name":         "analysis_capability",
+      "kind":         "engine_side_manifest",
+      "format":       "json",
+      "path":         "registries/analysis_capability.json",
+      "schema":       "engines/schemas/analysis_capability.entry.schema.json",
+      "built_by":     "hand-maintained",
+      "describes":    "every analysis this repo ships — analysis_type, module, provides, requires, supported_execution_modes, result_schema, entrypoint, engine_binding_ref",
+      "consumer_action": "merge with deployment-side fields (default_policy, cost_class, reuse_scope) per cost-based_usage_data-management-policy-prompt.md"
+    },
+    {
+      "name":         "interval_registry",
+      "kind":         "intervals_at_all_scales",
+      "format":       "tsv_with_header",
+      "path":         "registries/interval_registry.tsv",
+      "schema":       "engines/schemas/interval_registry.schema.json",
+      "built_by":     "registries/build_registries.py",
+      "describes":    "intervals at scales genome / chromosome / SNP-window / candidate-region; carries interval_id, scale_type, chrom, start, end, n_markers, ...",
+      "consumer_action": "filter by scale_type or chrom to pick intervals for an analysis"
+    },
+    {
+      "name":         "sample_subsets",
+      "kind":         "named_sample_groupings",
+      "format":       "tsv_with_header",
+      "path":         "registries/sample_subsets.tsv",
+      "schema":       "engines/schemas/sample_subsets.schema.json",
+      "built_by":     "registries/build_registries.py",
+      "describes":    "named sample subsets — full_cohort / unrelated_pruned / karyotype groups / families / wild-vs-hatchery — each pointing to a sample-list text file",
+      "consumer_action": "resolve subset_id to sample_list_path before passing into an engine"
+    },
+    {
+      "name":         "cov_registry",
+      "kind":         "pcangsd_covariance_files",
+      "format":       "tsv_with_header",
+      "path":         "registries/cov_registry.tsv",
+      "schema":       "engines/schemas/cov_registry.schema.json",
+      "built_by":     "registries/build_registries.py",
+      "describes":    "PCAngsd .cov files indexed by scope (global vs per-chromosome)",
+      "consumer_action": "look up by chrom or scope to find the right .cov input"
+    }
+  ],
+
+  "how_to_add_a_registry": [
+    "1. Pick a name (lowercase_with_underscores).",
+    "2. Decide format: 'tsv_with_header' (built by a script) or 'json' (hand-maintained or auto-emitted).",
+    "3. Write a JSON Schema at engines/schemas/<name>.schema.json describing the columns/fields.",
+    "4. Either extend registries/build_registries.py to emit it, or commit the data file directly.",
+    "5. Add an entry here in registries/manifest.json with name, kind, format, path, schema, built_by, describes, consumer_action.",
+    "6. Update registries/README.md if the registry is conceptually new (not just a refresh of an existing kind)."
+  ],
+
+  "consumer_quickstart": [
+    "1. Read registries/manifest.json to enumerate available registries.",
+    "2. For each registry of interest: fetch its file (path), validate against its schema, then iterate rows.",
+    "3. For the analysis_capability registry: merge each row with your deployment policy and load it into your dispatcher's routing table.",
+    "4. For the TSV registries: filter / join as needed; treat each row as a dict keyed by the column name."
+  ]
+}
