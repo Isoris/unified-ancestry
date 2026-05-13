@@ -23,6 +23,7 @@ plumbing; the schemas pin down the wire format.
 | xpehh | engines/xpehh | xpehh.activator.schema.json | xpehh.extractor.schema.json |
 | iHS | engines/iHS | iHS.activator.schema.json | iHS.extractor.schema.json |
 | outlier_scan | engines/outlier_scan | outlier_scan.activator.schema.json | outlier_scan.extractor.schema.json |
+| candidate_vs_flanks | engines/candidate_vs_flanks | candidate_vs_flanks.activator.schema.json | candidate_vs_flanks.extractor.schema.json |
 | (umbrella) | popstats server | popstats_server.activator.schema.json | popstats_server.extractor.schema.json |
 
 The umbrella schema is a `oneOf` over each per-statistic activator/extractor;

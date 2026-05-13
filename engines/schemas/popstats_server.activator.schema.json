@@ -9,15 +9,16 @@
   "oneOf": [
     { "$ref": "xpehh.activator.schema.json" },
     { "$ref": "iHS.activator.schema.json" },
-    { "$ref": "outlier_scan.activator.schema.json" }
+    { "$ref": "outlier_scan.activator.schema.json" },
+    { "$ref": "candidate_vs_flanks.activator.schema.json" }
   ],
   "supported_statistics": [
     "xpehh",
     "iHS",
-    "outlier_scan"
+    "outlier_scan",
+    "candidate_vs_flanks"
   ],
   "planned_statistics_not_yet_specced": [
-    "candidate_vs_flanks",
     "fst", "pi", "dxy", "dA", "tajima_D",
     "pi_NS", "pi_4fold", "pi_0fold",
     "fdM", "region_test", "ultrabootstrap"

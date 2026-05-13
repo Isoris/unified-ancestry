@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "candidate_vs_flanks.extractor.schema.json",
+  "title": "candidate_vs_flanks extractor (response)",
+  "description": "JSON response shape: one row per (candidate × stat) Wilcoxon + permutation test of inside-vs-flanks.",
+  "type": "object",
+  "required": ["schema_version", "statistic", "status", "metadata", "tests"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "candidate_vs_flanks_v1" },
+    "statistic":      { "type": "string", "const": "candidate_vs_flanks" },
+    "request_id":     { "type": "string" },
+    "status":         { "type": "string", "enum": ["ok", "empty", "error"] },
+    "error":          { "type": "string" },
+
+    "metadata": {
+      "type": "object",
+      "required": ["n_candidates", "n_stats", "n_tests", "flank_bp", "permutations",
+                   "exclude_flank_overlaps", "n_sig_wilcoxon_p_lt_0.05"],
+      "additionalProperties": false,
+      "properties": {
+        "n_candidates":            { "type": "integer" },
+        "n_stats":                 { "type": "integer" },
+        "n_tests":                 { "type": "integer", "description": "= n_candidates × n_stats." },
+        "flank_bp":                { "type": "integer" },
+        "exclude_flank_overlaps":  { "type": "boolean" },
+        "permutations":            { "type": "integer" },
+        "seed":                    { "type": "integer" },
+        "n_sig_wilcoxon_p_lt_0.05":{ "type": "integer", "description": "Uncorrected count of significant Wilcoxon tests at α=0.05; apply BH/Bonferroni downstream." },
+        "engine_version":          { "type": "string" },
+        "note":                    { "type": "string", "default": "Inside-vs-flanks Wilcoxon. Not a calibrated selection test; use multiple-testing correction across candidates × stats." }
+      }
+    },
+
+    "tests": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/CandidateTest" }
+    }
+  },
+  "definitions": {
+    "CandidateTest": {
+      "type": "object",
+      "required": ["candidate_id", "chrom", "cand_start", "cand_end",
+                   "stat_name", "n_inside", "n_flank",
+                   "mean_inside", "mean_flank",
+                   "median_inside", "median_flank",
+                   "effect_diff", "inside_minus_flank_direction"],
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id":                  { "type": "string" },
+        "chrom":                         { "type": "string" },
+        "cand_start":                    { "type": "integer" },
+        "cand_end":                      { "type": "integer" },
+        "length_bp":                     { "type": "integer" },
+        "flank_bp":                      { "type": "integer" },
+        "stat_name":                     { "type": "string" },
+        "n_inside":                      { "type": "integer" },
+        "n_flank":                       { "type": "integer" },
+        "mean_inside":                   { "type": ["number", "null"] },
+        "mean_flank":                    { "type": ["number", "null"] },
+        "median_inside":                 { "type": ["number", "null"] },
+        "median_flank":                  { "type": ["number", "null"] },
+        "effect_diff":                   { "type": ["number", "null"], "description": "mean_inside − mean_flank." },
+        "inside_minus_flank_direction":  { "type": "string", "enum": ["inside_higher", "inside_lower", "same", "NA"] },
+        "W":                             { "type": ["number", "null"], "description": "Mann-Whitney U for the inside group (group=0 in the engine)." },
+        "z":                             { "type": ["number", "null"], "description": "Tie-corrected normal approximation." },
+        "wilcoxon_p":                    { "type": ["number", "null"], "description": "Two-sided p from the z-normal approx." },
+        "perm_p":                        { "type": ["number", "null"], "description": "Permutation p (+1 smoothed). Present when permutations > 0." }
+      }
+    }
+  },
+  "sign_convention": "inside_higher = mean_inside > mean_flank. Combined with stat-specific biology this means: FST inside_higher = inversion is differentiated; π inside_lower = diversity trough inside inversion (recombination suppression); dXY inside_higher = the two arrangements have accumulated divergence; Tajima's D inside_higher = positive D inside (balancing or recent bottleneck), etc."
+}
