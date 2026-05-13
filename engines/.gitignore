@@ -10,6 +10,7 @@ region_test
 ultrabootstrap
 outlier_scan
 candidate_vs_flanks
+popstats_dispatch
 xpehh
 iHS
 homolog_index_build
