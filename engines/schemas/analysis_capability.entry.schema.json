@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "analysis_capability.entry.schema.json",
+  "title": "Analysis capability registry entry",
+  "description": "One self-describing entry per registered analysis. The popstats / atlas server loads the whole registry (an array of these) at startup; for each incoming request it looks up the matching analysis_type and decides whether to run live, hit a cache, or read from precompute, using `execution_modes` + `default_policy` modulated by the cost-based classifier (see cost-based_usage_data-management-policy-prompt.md).",
+  "type": "object",
+  "required": [
+    "analysis_type",
+    "module",
+    "provides",
+    "requires",
+    "execution_modes",
+    "default_policy",
+    "cost_class",
+    "result_schema",
+    "entrypoint"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "analysis_type": {
+      "type": "string",
+      "description": "Stable id of the analysis (e.g. 'fst_profile', 'pi_NS', 'iHS_window'). Used as the discriminator when routing requests."
+    },
+    "module": {
+      "type": "string",
+      "description": "Owning module / engine binary (e.g. 'popstats', 'codon_stats', 'fdM'). Multiple analyses can belong to one module."
+    },
+    "provides": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Result-schema version tags this analysis emits, e.g. ['fst_profile_v1', 'fst_profile_v2']. Clients select by version."
+    },
+    "requires": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Logical inputs this analysis needs. Free-form tokens; suggested vocabulary: 'beagle_gl', 'sample_list', 'groups', 'karyotype', 'interval', 'candidates_bed', 'windows_tsv', 'cache', 'genome_fa', 'gff', etc. Used by the server for pre-flight validation and for matching against what the request supplies."
+    },
+    "execution_modes": {
+      "type": "object",
+      "description": "Which storage tiers this analysis is even *capable* of. True means the engine supports the mode; false means it does not. The classifier may still narrow this further.",
+      "additionalProperties": false,
+      "required": ["live", "memory_cache", "disk_cache", "precompute", "committed"],
+      "properties": {
+        "live":         { "type": "boolean" },
+        "memory_cache": { "type": "boolean" },
+        "disk_cache":   { "type": "boolean" },
+        "precompute":   { "type": "boolean" },
+        "committed":    { "type": "boolean" }
+      }
+    },
+    "default_policy": {
+      "type": "string",
+      "enum": ["live", "memory_cache", "disk_cache", "precompute", "committed"],
+      "description": "Policy applied when the cost-based classifier has no opinion (e.g. unknown request shape). Must be one of the keys in `execution_modes` set to true."
+    },
+    "allowed_policies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["live", "memory_cache", "disk_cache", "precompute", "committed"]
+      },
+      "description": "Optional explicit allow-list. If absent, derived from `execution_modes` (= the keys set to true). Useful when the engine can technically do a mode but you want to forbid it for this deployment (e.g. policy says 'no live mode for >1Mb intervals')."
+    },
+    "cost_class": {
+      "type": "string",
+      "enum": ["cheap", "medium", "expensive", "very_expensive"],
+      "description": "Default cost class for typical-shape requests. The classifier may override per request shape (see cost-based_usage_data-management-policy-prompt.md)."
+    },
+    "reuse_scope": {
+      "type": "string",
+      "description": "Free-form tag describing the natural unit of reuse. Suggested values: 'candidate' (cached per candidate id), 'chromosome' (per chrom), 'cohort' (per sample-set hash), 'genome' (one entry shared by all users), 'session' (per UI session), 'ephemeral' (per request, never reused)."
+    },
+    "result_schema": {
+      "type": "string",
+      "description": "Output JSON schema id (e.g. 'fst_result_v1'). Should match one of the entries in `provides` and correspond to a schema file the server can validate against."
+    },
+    "entrypoint": {
+      "type": "string",
+      "description": "How the server invokes this analysis. For engine-binary entrypoints this is the binary name (e.g. 'popstats_fst'); for dispatcher-routed analyses it's the statistic discriminator (e.g. 'outlier_scan' — handed to popstats_dispatch via the activator's `.statistic` field)."
+    },
+    "engine_binding_ref": {
+      "type": "string",
+      "description": "Optional. Path or $id of the activator schema whose `engine_binding` block describes the CLI flag mapping. Lets the dispatcher build argv off the schema instead of hardcoding."
+    },
+    "deprecated": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, the server should warn callers that the analysis is being phased out."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-form notes for humans reading the registry."
+    }
+  },
+  "consistency_rules": {
+    "default_in_modes":    "default_policy MUST correspond to an execution_modes entry set to true.",
+    "allowed_in_modes":    "Every value in allowed_policies (if present) MUST correspond to an execution_modes entry set to true.",
+    "provides_has_schema": "result_schema SHOULD appear in `provides` (canonical version) OR be a strict superset version."
+  },
+  "example": {
+    "analysis_type":   "fst_profile",
+    "module":          "popstats",
+    "provides":        ["fst_profile_v1"],
+    "requires":        ["beagle_gl", "sample_list", "groups", "interval"],
+    "execution_modes": {
+      "live":         true,
+      "memory_cache": true,
+      "disk_cache":   true,
+      "precompute":   false,
+      "committed":    true
+    },
+    "default_policy":  "disk_cache",
+    "cost_class":      "medium",
+    "reuse_scope":     "candidate",
+    "result_schema":   "fst_result_v1",
+    "entrypoint":      "popstats_fst",
+    "engine_binding_ref": "engines/schemas/outlier_scan.activator.schema.json#/engine_binding"
+  }
+}

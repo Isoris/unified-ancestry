@@ -78,6 +78,66 @@ contexts:
    Atlas sessions read; never re-compute interactively.
 5. **Committed / saved** — git or release package. Reviewed, signed off.
 
+## Step 0 — the analysis capability registry
+
+Before the audit can classify anything, the system needs each analysis
+to be **self-describing**. The existing "loaded modules" registry only
+says `loaded: yes` — that's not enough. The server can't decide whether
+to run a request live, cache it, or precompute it if the analysis doesn't
+tell it:
+
+- what does this analysis *provide*?
+- what inputs does it *require*?
+- how expensive is it?
+- which execution modes does it *support* (live / memory / disk / precompute / committed)?
+- what's its *default* mode?
+- what result schema does it *emit*?
+- what's the engine *entrypoint*?
+
+The missing piece is an **analysis capability registry** — a small JSON
+or TSV loaded at startup. One entry per analysis_type. Minimal shape:
+
+```json
+{
+  "analysis_type":     "fst_profile",
+  "module":            "popstats",
+  "provides":          ["fst_profile_v1"],
+  "requires":          ["interval", "groups", "cache"],
+  "execution_modes": {
+    "live":         true,
+    "memory_cache": true,
+    "disk_cache":   true,
+    "precompute":   false,
+    "committed":    true
+  },
+  "default_policy":    "disk_cache",
+  "cost_class":        "medium",
+  "reuse_scope":       "candidate",
+  "result_schema":     "fst_result_v1",
+  "entrypoint":        "popstats_fst"
+}
+```
+
+With this in place the server can ask:
+- *"Who provides `fst_profile_v1`?"* — registry answers.
+- *"Can it run live?"* — registry says yes/no.
+- *"What's the default policy for this analysis?"* — registry says.
+- *"Where should the cached result.json go?"* — derived from
+  `default_policy` × `analysis_type` × request hash.
+
+Then the cost-based classifier (above) overrides the default per
+request shape: e.g. an `fst_profile` request whose request-shape is
+genome-wide (shared layer) gets re-routed from `disk_cache` →
+`precompute` even though the analysis's default is `disk_cache`.
+
+JSON Schema for one entry:
+`engines/schemas/analysis_capability.entry.schema.json` (in this
+repo). Other repos should keep the same schema and a sibling
+`<repo>/registry/analysis_capability.json` (or .tsv) listing their
+analyses.
+
+---
+
 ## What the audit produces — per registered module/analysis
 
 The job isn't to slap every "FST" call into the same tier. The job is
@@ -88,6 +148,11 @@ if it's called in materially different shapes.
 
 For each module, the audit walks its known callers and produces one
 row per (module × request-shape) pair.
+
+If the analysis capability registry above exists, the audit reads it
+first as the source of truth. If it doesn't, **building it is the
+first audit deliverable** — the audit produces the registry as a
+side-effect.
 
 ## Audit procedure (what the assistant should do)
 
