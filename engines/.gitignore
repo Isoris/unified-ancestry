@@ -4,6 +4,14 @@ hobs_windower
 rare_sfs_pairwise
 export_q_residual_dosage
 codon_stats
+pi_NS
+fdM
+region_test
+ultrabootstrap
+outlier_scan
+candidate_vs_flanks
+xpehh
+iHS
 homolog_index_build
 homolog_index_query
 homolog_atlas_server

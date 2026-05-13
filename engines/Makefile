@@ -22,7 +22,8 @@ PREFIX  ?= $(HOME)/.local
 
 CPP_BINS = instant_q
 C_BINS   = region_popstats rare_sfs_pairwise export_q_residual_dosage hobs_windower \
-           codon_stats homolog_index_build homolog_index_query homolog_atlas_server
+           codon_stats pi_NS fdM region_test ultrabootstrap outlier_scan candidate_vs_flanks xpehh iHS \
+           homolog_index_build homolog_index_query homolog_atlas_server
 ALL_BINS = $(CPP_BINS) $(C_BINS)
 
 all: $(ALL_BINS)
@@ -44,6 +45,30 @@ hobs_windower: hobs_windower.c
 
 codon_stats: codon_stats.c
 	$(CC) $(CFLAGS) -o $@ $< -lm -fopenmp
+
+pi_NS: pi_NS.c
+	$(CC) $(CFLAGS) -o $@ $< -lm -fopenmp
+
+fdM: fdM.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+region_test: region_test.c
+	$(CC) $(CFLAGS) -o $@ $< -lm -fopenmp
+
+ultrabootstrap: ultrabootstrap.c
+	$(CC) $(CFLAGS) -o $@ $< -lm -fopenmp
+
+outlier_scan: outlier_scan.c
+	$(CC) -O3 -march=native -Wall -o $@ $< -lm
+
+candidate_vs_flanks: candidate_vs_flanks.c
+	$(CC) $(CFLAGS) -o $@ $< -lm -fopenmp
+
+xpehh: xpehh.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+iHS: iHS.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
 homolog_index_build: homolog_index_build.c homolog_index.h
 	$(CC) -O3 -march=native -Wall -o $@ $<

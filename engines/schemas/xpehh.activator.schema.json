@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "xpehh.activator.schema.json",
+  "title": "xpehh activator (request)",
+  "description": "JSON request the popstats client posts to invoke an XP-EHH compute. The dispatcher validates against this schema, then runs engines/xpehh with the corresponding CLI flags, then converts the TSV output into the xpehh.extractor.schema.json shape.",
+  "type": "object",
+  "required": ["statistic", "inputs", "scope"],
+  "additionalProperties": false,
+  "properties": {
+    "statistic": { "type": "string", "const": "xpehh" },
+    "version": { "type": "string", "default": "xpehh_v1",
+                  "description": "Engine schema_version. Server may upgrade compatible requests but should error on a downgrade." },
+    "request_id": { "type": "string",
+                    "description": "Optional opaque tracking id echoed in the extractor response." },
+
+    "inputs": {
+      "type": "object",
+      "required": ["beagle", "sample_list", "test_samples", "ref_samples"],
+      "additionalProperties": false,
+      "properties": {
+        "beagle":        { "type": "string", "description": "Path to .beagle.gz (ANGSD GL triplets, biallelic)." },
+        "sample_list":   { "type": "string", "description": "Path to sample IDs (one per line, in BEAGLE column order)." },
+        "test_samples":  { "type": "string", "description": "Path to test-cohort sample list. Sign convention: positive XP-EHH = test has longer EHH." },
+        "ref_samples":   { "type": "string", "description": "Path to reference-cohort sample list." }
+      }
+    },
+
+    "scope": {
+      "type": "object",
+      "required": ["chrom", "windows"],
+      "additionalProperties": false,
+      "properties": {
+        "chrom": { "type": "string", "description": "Chromosome to scan (single chrom per request — engine restriction)." },
+        "windows": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["mode", "size_bp", "step_bp"],
+              "properties": {
+                "mode":    { "type": "string", "const": "fixed_bp" },
+                "size_bp": { "type": "integer", "minimum": 1 },
+                "step_bp": { "type": "integer", "minimum": 1 }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["mode", "bed_path"],
+              "properties": {
+                "mode":     { "type": "string", "const": "bed" },
+                "bed_path": { "type": "string", "description": "chrom start end [id] — already filtered to --chrom if mixing." }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      }
+    },
+
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ehh_decay":       { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.05,
+                              "description": "Stop the EHH walk when mean within-cohort IBS-running-product drops below this." },
+        "max_distance_bp": { "type": "integer", "minimum": 1, "default": 1000000,
+                              "description": "Per-arm cap on walk distance." },
+        "min_n_test":      { "type": "integer", "minimum": 2, "default": 20 },
+        "min_n_ref":       { "type": "integer", "minimum": 2, "default": 20 },
+        "focal_step":      { "type": "integer", "minimum": 1, "default": 1,
+                              "description": "Compute XP-EHH at every Kth SNP." }
+      }
+    },
+
+    "compute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ncores": { "type": "integer", "minimum": 1, "default": 1 }
+      }
+    }
+  },
+  "engine_binding": {
+    "binary": "engines/xpehh",
+    "cli_flag_map": {
+      "inputs.beagle":           "--beagle",
+      "inputs.sample_list":      "--sample_list",
+      "inputs.test_samples":     "--test_samples",
+      "inputs.ref_samples":      "--ref_samples",
+      "scope.chrom":             "--chr",
+      "scope.windows.size_bp":   "--fixed_win <size>:<step>",
+      "scope.windows.step_bp":   "--fixed_win <size>:<step>",
+      "scope.windows.bed_path":  "--windows",
+      "params.ehh_decay":        "--ehh_decay",
+      "params.max_distance_bp":  "--max_distance_bp",
+      "params.min_n_test":       "--min_n_test",
+      "params.min_n_ref":        "--min_n_ref",
+      "params.focal_step":       "--focal_step",
+      "compute.ncores":          "--ncores"
+    }
+  }
+}

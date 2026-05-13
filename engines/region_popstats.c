@@ -44,13 +44,14 @@
 #define MAX_GROUPS 10
 #define MAX_SITES 2000000
 
-#define SCHEMA_VERSION "region_popstats_v2"
+#define SCHEMA_VERSION "region_popstats_v3"
 
 // ── Data ──
 
 typedef struct {
     int pos;
     char allele1, allele2;        // ANGSD numeric allele codes 0..3 (A,C,G,T)
+    float fis;                    // per-SNP cohort F_IS: (He - Ho) / He from BEAGLE GLs; NaN if He=0
     double dos[MAX_IND];          // expected dosage per individual
 } SiteData;
 
@@ -415,6 +416,9 @@ int load_beagle_dosage(const char* path, const char* filter_chr,
         sites[n].allele1 = (char)a1_code;
         sites[n].allele2 = (char)a2_code;
 
+        double sum_dosage = 0.0;
+        double sum_gl1    = 0.0;
+
         for (int i = 0; i < n_ind_expected; i++) {
             double gl0 = 0, gl1 = 0, gl2 = 0;
             char* endp;
@@ -430,13 +434,28 @@ int load_beagle_dosage(const char* path, const char* filter_chr,
             if (s > 1e-15) {
                 gl0 /= s; gl1 /= s; gl2 /= s;
             }
-            sites[n].dos[i] = gl1 + 2.0 * gl2;
+            double dos = gl1 + 2.0 * gl2;
+            sites[n].dos[i] = dos;
+            sum_dosage += dos;
+            sum_gl1    += gl1;
             if (sample_peak) {
                 double pk = gl0;
                 if (gl1 > pk) pk = gl1;
                 if (gl2 > pk) pk = gl2;
                 sample_peak[i] = pk;
             }
+        }
+
+        // Per-SNP cohort F_IS = (He - Ho) / He, all from BEAGLE GL posteriors.
+        //   p_alt = sum_dosage / (2 * N)
+        //   He    = 2 * p_alt * (1 - p_alt)        (expected het frequency)
+        //   Ho    = sum_gl1 / N                    (expected het frequency under GL posteriors)
+        // NaN when He <= 0 (monomorphic site).
+        {
+            double p_alt = sum_dosage / (2.0 * n_ind_expected);
+            double He = 2.0 * p_alt * (1.0 - p_alt);
+            double Ho = sum_gl1 / (double)n_ind_expected;
+            sites[n].fis = (He > 1e-10) ? (float)((He - Ho) / He) : (float)NAN;
         }
 
         if (pv && pv->fp) {
@@ -467,7 +486,137 @@ typedef struct {
     double theta_pi_all, theta_W_all, tajima_D;
     double Hp;
     int S;
+    // Per-SNP F_IS distribution stats (region vs rest of loaded genome).
+    // Driver: Bonhomme et al. (highlighted methods excerpt) — Wilcoxon
+    // rank-sum (region vs rest) + one-sample t-test of mean vs 0.
+    int    n_fis_perSNP;
+    double mean_fis_perSNP;
+    double sd_fis_perSNP;
+    double W_fis;                  // Mann-Whitney U for this window's F_IS vs the rest
+    double z_fis_wilcoxon;
+    double p_fis_wilcoxon;         // two-sided, normal approximation
+    double t_fis_vsZero;
+    int    df_fis_vsZero;
+    double p_fis_vsZero;           // two-sided, normal approximation (≈ Student's t for df > 30)
 } WinStats;
+
+// ── Per-SNP F_IS distribution tests (global ranking + per-window stats) ─────
+
+typedef struct { float val; int sidx; } FisIdx;
+
+static int fisidx_cmp(const void* a, const void* b) {
+    const FisIdx* fa = (const FisIdx*)a;
+    const FisIdx* fb = (const FisIdx*)b;
+    if (fa->val < fb->val) return -1;
+    if (fa->val > fb->val) return  1;
+    return 0;
+}
+
+// Build global per-site rank table over valid F_IS values. ranks[j] = NaN if
+// site j has no valid F_IS, else the average rank (1-based, tie-corrected).
+// Sets *n_valid_out and *sum_tie_out where sum_tie = Σ (t_k^3 − t_k) over tied groups.
+static void build_fis_ranks(const SiteData* sites, int n_sites,
+                            double* ranks, int* n_valid_out, double* sum_tie_out) {
+    FisIdx* arr = (FisIdx*)malloc((size_t)n_sites * sizeof(FisIdx));
+    int n_valid = 0;
+    for (int j = 0; j < n_sites; j++) {
+        ranks[j] = NAN;
+        if (isfinite(sites[j].fis)) {
+            arr[n_valid].val  = sites[j].fis;
+            arr[n_valid].sidx = j;
+            n_valid++;
+        }
+    }
+    qsort(arr, (size_t)n_valid, sizeof(FisIdx), fisidx_cmp);
+
+    double sum_tie = 0.0;
+    int i = 0;
+    while (i < n_valid) {
+        int k = i + 1;
+        while (k < n_valid && arr[k].val == arr[i].val) k++;
+        double avg_rank = (double)(i + 1 + k) / 2.0;
+        int tcount = k - i;
+        if (tcount > 1) sum_tie += (double)tcount * tcount * tcount - (double)tcount;
+        for (int j = i; j < k; j++) ranks[arr[j].sidx] = avg_rank;
+        i = k;
+    }
+
+    free(arr);
+    *n_valid_out = n_valid;
+    *sum_tie_out = sum_tie;
+}
+
+// Two-sided p-value from a z-score using the standard normal CDF
+// (2*(1-Φ(|z|)) = erfc(|z|/√2)).
+static double normal_two_sided_p(double z) {
+    if (isnan(z) || !isfinite(z)) return NAN;
+    return erfc(fabs(z) * M_SQRT1_2);
+}
+
+// Per-window F_IS distribution stats. `sites` is the full loaded site array;
+// the window covers indices [first, first + n_win). `ranks` and `sum_tie` are
+// from build_fis_ranks over the same site array; `N_global_valid` is the total
+// count of valid F_IS values across all loaded sites.
+static void compute_fis_window_stats(const SiteData* sites, int first, int n_win,
+                                     const double* ranks, double sum_tie,
+                                     int N_global_valid, WinStats* out) {
+    out->n_fis_perSNP    = 0;
+    out->mean_fis_perSNP = NAN;
+    out->sd_fis_perSNP   = NAN;
+    out->W_fis           = NAN;
+    out->z_fis_wilcoxon  = NAN;
+    out->p_fis_wilcoxon  = NAN;
+    out->t_fis_vsZero    = NAN;
+    out->df_fis_vsZero   = 0;
+    out->p_fis_vsZero    = NAN;
+
+    double sum = 0.0, ssq = 0.0, sum_rank = 0.0;
+    int n = 0;
+    for (int j = first; j < first + n_win; j++) {
+        if (!isfinite(sites[j].fis)) continue;
+        double v = (double)sites[j].fis;
+        sum += v;
+        ssq += v * v;
+        sum_rank += ranks[j];
+        n++;
+    }
+    if (n == 0) return;
+
+    out->n_fis_perSNP    = n;
+    out->mean_fis_perSNP = sum / n;
+    if (n > 1) {
+        double var = (ssq - n * out->mean_fis_perSNP * out->mean_fis_perSNP) / (n - 1);
+        if (var < 0) var = 0;
+        out->sd_fis_perSNP = sqrt(var);
+    } else {
+        out->sd_fis_perSNP = 0.0;
+    }
+
+    // Wilcoxon rank-sum (Mann-Whitney U), window vs rest-of-loaded-genome.
+    int n1 = n;
+    int n2 = N_global_valid - n;
+    if (n1 > 0 && n2 > 0) {
+        double U1 = sum_rank - (double)n1 * (n1 + 1) / 2.0;
+        double mu_U = (double)n1 * n2 / 2.0;
+        double tie_term = sum_tie / ((double)N_global_valid * (N_global_valid - 1));
+        double var_U = ((double)n1 * n2 / 12.0)
+                       * ((double)(N_global_valid + 1) - tie_term);
+        out->W_fis = U1;
+        if (var_U > 0) {
+            double z = (U1 - mu_U) / sqrt(var_U);
+            out->z_fis_wilcoxon = z;
+            out->p_fis_wilcoxon = normal_two_sided_p(z);
+        }
+    }
+
+    // One-sample t-test, mean F_IS vs 0. Normal approximation; ≈ Student's t for df > 30.
+    if (n > 1 && out->sd_fis_perSNP > 0) {
+        double t = out->mean_fis_perSNP / (out->sd_fis_perSNP / sqrt((double)n));
+        out->t_fis_vsZero  = t;
+        out->df_fis_vsZero = n - 1;
+        out->p_fis_vsZero  = normal_two_sided_p(t);
+    }
+}
 
 void compute_window(SiteData* sites, int n_sites, int n_ind,
                     Group* groups, int n_groups,
@@ -939,6 +1088,14 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[popstats] %d windows, %d groups, downsample=%dx, type=%d\n",
             n_wins, n_groups, downsample, win_type);
 
+    // Global per-SNP F_IS ranking for Wilcoxon rank-sum tests.
+    double* fis_ranks = (double*)malloc((size_t)n_sites * sizeof(double));
+    int n_fis_global_valid = 0;
+    double fis_sum_tie = 0.0;
+    build_fis_ranks(sites, n_sites, fis_ranks, &n_fis_global_valid, &fis_sum_tie);
+    fprintf(stderr, "[popstats] Per-SNP F_IS: %d / %d sites valid (sum_tie=%.0f)\n",
+            n_fis_global_valid, n_sites, fis_sum_tie);
+
     FILE* fout = out_path ? fopen(out_path, "w") : stdout;
 
     // Schema version (first line).
@@ -952,6 +1109,7 @@ int main(int argc, char** argv) {
     if (site_idx_from >= 0) fprintf(fout, " site_idx=%d:%d", site_idx_from, site_idx_to);
     if (have_karyo) fprintf(fout, " karyotype_N=%d (HOM_A=%d HET=%d HOM_B=%d) hwe_fis_threshold=%.3f",
                             karyo.n, karyo.n_hom_a, karyo.n_het, karyo.n_hom_b, hwe_fis_threshold);
+    fprintf(fout, " n_fis_global_valid=%d", n_fis_global_valid);
     fprintf(fout, "\n");
 
     // Header
@@ -971,6 +1129,9 @@ int main(int argc, char** argv) {
     if (have_karyo)
         fprintf(fout, "\tHWE_n\tHWE_n_HOM_A\tHWE_n_HET\tHWE_n_HOM_B\t"
                       "HWE_Hobs\tHWE_Hexp\tHWE_FIS\tHWE_pvalue\tHWE_HET_excess_deficit");
+    fprintf(fout, "\tn_FIS_perSNP\tmean_FIS_perSNP\tsd_FIS_perSNP\t"
+                  "W_FIS\tz_FIS_wilcoxon\tp_FIS_wilcoxon\t"
+                  "t_FIS_vsZero\tdf_FIS_vsZero\tp_FIS_vsZero");
     fprintf(fout, "\n");
 
     // Process windows
@@ -995,6 +1156,10 @@ int main(int argc, char** argv) {
         if (n_win >= 5) {
             compute_window(sites + first, n_win, n_ind, groups, n_groups, &ws_out);
         }
+
+        compute_fis_window_stats(sites, first, n_win,
+                                 fis_ranks, fis_sum_tie, n_fis_global_valid,
+                                 &ws_out);
 
         fprintf(fout, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%.6f\t%.6f\t%.4f\t%.6f",
                 wins[wi].id, filter_chr ? filter_chr : ".",
@@ -1033,11 +1198,30 @@ int main(int argc, char** argv) {
                     h.Hobs, h.Hexp, h.FIS, h.pvalue, h.label);
         }
 
+        // Per-SNP F_IS distribution tests (always emitted)
+        {
+            #define EMIT_NUM(v) do { \
+                if (isnan(v))      fprintf(fout, "\tNA"); \
+                else if (isinf(v)) fprintf(fout, "\tInf"); \
+                else               fprintf(fout, "\t%.6g", (double)(v)); \
+            } while (0)
+            fprintf(fout, "\t%d", ws_out.n_fis_perSNP);
+            EMIT_NUM(ws_out.mean_fis_perSNP);
+            EMIT_NUM(ws_out.sd_fis_perSNP);
+            EMIT_NUM(ws_out.W_fis);
+            EMIT_NUM(ws_out.z_fis_wilcoxon);
+            EMIT_NUM(ws_out.p_fis_wilcoxon);
+            EMIT_NUM(ws_out.t_fis_vsZero);
+            fprintf(fout, "\t%d", ws_out.df_fis_vsZero);
+            EMIT_NUM(ws_out.p_fis_vsZero);
+            #undef EMIT_NUM
+        }
+
         fprintf(fout, "\n");
     }
 
     if (out_path) fclose(fout);
-    free(sites); free(wins);
+    free(sites); free(wins); free(fis_ranks);
     fprintf(stderr, "[popstats] Done: %d windows\n", n_wins);
     return 0;
 }

@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "candidate_vs_flanks.activator.schema.json",
+  "title": "candidate_vs_flanks activator (request)",
+  "description": "JSON request the popstats client posts to invoke an inversion-candidate-support test. For each candidate × stat_col, Mann-Whitney U + optional permutation test compares per-window stat values INSIDE the candidate vs in flanking N bp on either side.",
+  "type": "object",
+  "required": ["statistic", "inputs", "stats"],
+  "additionalProperties": false,
+  "properties": {
+    "statistic": { "type": "string", "const": "candidate_vs_flanks" },
+    "version":   { "type": "string", "default": "candidate_vs_flanks_v1" },
+    "request_id":{ "type": "string" },
+
+    "inputs": {
+      "type": "object",
+      "required": ["candidates_bed", "windows_tsv"],
+      "additionalProperties": false,
+      "properties": {
+        "candidates_bed": { "type": "string", "description": "BED with chrom<TAB>start<TAB>end[<TAB>candidate_id]." },
+        "windows_tsv":    { "type": "string", "description": "Per-window stat TSV (same format as outlier_scan input)." }
+      }
+    },
+
+    "stats": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["col"],
+        "additionalProperties": false,
+        "properties": {
+          "col":  { "type": "string", "description": "Column in windows_tsv to test." },
+          "name": { "type": "string", "description": "Optional display name (defaults to col)." }
+        }
+      },
+      "description": "Stat columns to test. The engine runs one Wilcoxon (+ optional permutation) per (candidate × stat)."
+    },
+
+    "table_cols": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "chrom_col": { "type": "string" },
+        "start_col": { "type": "string" },
+        "end_col":   { "type": "string" }
+      },
+      "description": "Optional explicit windows_tsv column names. Auto-detected if omitted."
+    },
+
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "flank_bp":               { "type": "integer", "minimum": 0, "default": 300000,
+                                     "description": "Per-side flank size in bp. Standard inversion-support flanks are 300 kb." },
+        "exclude_flank_overlaps": { "type": "boolean", "default": false,
+                                     "description": "When true, flank windows that fall inside ANOTHER candidate are excluded from the comparison." },
+        "permutations":           { "type": "integer", "minimum": 0, "default": 1000,
+                                     "description": "Permutation reps; 0 disables. Uses inside/flank label shuffle with +1 smoothing." },
+        "seed":                   { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "compute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "ncores": { "type": "integer", "minimum": 1, "default": 1 } }
+    },
+
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "out_table":   { "type": "string" },
+        "out_summary": { "type": "string" }
+      }
+    }
+  },
+  "engine_binding": {
+    "binary": "engines/candidate_vs_flanks",
+    "cli_flag_map": {
+      "inputs.candidates_bed":          "--candidates",
+      "inputs.windows_tsv":             "--windows_tsv",
+      "stats[*].col":                   "--stat_cols (comma-joined)",
+      "stats[*].name":                  "--stat_names (comma-joined, same length)",
+      "table_cols.chrom_col":           "--chrom_col",
+      "table_cols.start_col":           "--start_col",
+      "table_cols.end_col":             "--end_col",
+      "params.flank_bp":                "--flank_bp",
+      "params.exclude_flank_overlaps":  "--exclude_flank_overlaps (boolean flag)",
+      "params.permutations":            "--permutations",
+      "params.seed":                    "--seed",
+      "compute.ncores":                 "--ncores",
+      "outputs.out_table":              "--out_table",
+      "outputs.out_summary":            "--out_summary"
+    }
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "outlier_scan.activator.schema.json",
+  "title": "outlier_scan activator (request)",
+  "description": "JSON request the popstats client posts to invoke a genome-wide outlier + HDR scan over a per-window stat TSV. Direction-aware: same engine handles FST (high), π (low), dXY (high), fdM (abs), Tajima's D (abs), etc.",
+  "type": "object",
+  "required": ["statistic", "inputs", "stat", "thresholds"],
+  "additionalProperties": false,
+  "properties": {
+    "statistic": { "type": "string", "const": "outlier_scan" },
+    "version":   { "type": "string", "default": "outlier_scan_v1" },
+    "request_id":{ "type": "string" },
+
+    "inputs": {
+      "type": "object",
+      "required": ["windows_tsv"],
+      "additionalProperties": false,
+      "properties": {
+        "windows_tsv":          { "type": "string", "description": "Per-window TSV. Required columns: chrom, start, end, plus the stat column." },
+        "stronger_windows_tsv": { "type": "string", "description": "Optional. Stronger 10-kb-window TSV for HDR overlap check." },
+        "genes_tsv":            { "type": "string", "description": "Optional. chrom<TAB>start<TAB>end<TAB>gene_id for nearest_gene annotation." },
+        "inversion_bed":        { "type": "string" },
+        "breakpoint_bed":       { "type": "string" },
+        "te_bed":               { "type": "string" }
+      }
+    },
+
+    "stat": {
+      "type": "object",
+      "required": ["name", "direction"],
+      "additionalProperties": false,
+      "properties": {
+        "name":      { "type": "string", "description": "Output column prefix and JSON-key prefix (e.g. 'fst', 'pi', 'dXY', 'dA', 'tajimaD', 'fdM', 'xpehh', 'iHS')." },
+        "direction": { "type": "string", "enum": ["high", "low", "abs"],
+                        "description": "high: flag value >= threshold (FST, dXY, ...). low: flag value <= threshold (π troughs, low recombination). abs: flag |value| >= threshold (fdM, Tajima's D both tails)." },
+        "stat_col":  { "type": "string", "description": "TSV column to read. Optional; auto-detected from fst_*/pi_*/dxy_*/dA_*/fdM_* aliases." },
+        "chrom_col": { "type": "string" },
+        "start_col": { "type": "string" },
+        "end_col":   { "type": "string" },
+        "nvar_col":  { "type": "string" }
+      }
+    },
+
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "threshold":            { "type": "number", "description": "Absolute cutoff. Compared as <stat> vs threshold under --direction." },
+        "top_pct":              { "type": "number", "minimum": 0, "maximum": 100,
+                                    "description": "Empirical-percentile threshold from the data. Direction-aware: high → 100-top_pct percentile; low → top_pct percentile; abs → top_pct of |value|. Overrides 'threshold' when present." },
+        "stronger_threshold":   { "type": "number", "description": "HDR escalation cutoff. Default 0.30 for high/abs; for low, half of threshold." },
+        "merge_gap_bp":         { "type": "integer", "minimum": 0, "default": 10000 }
+      },
+      "anyOf": [
+        { "required": ["threshold"] },
+        { "required": ["top_pct"] }
+      ]
+    },
+
+    "metadata": {
+      "type": "object",
+      "description": "Optional run metadata recorded in the JSON summary.",
+      "additionalProperties": false,
+      "properties": {
+        "comparison_id": { "type": "string" },
+        "group_a":       { "type": "string" },
+        "group_b":       { "type": "string" },
+        "window_mode":   { "type": "string", "description": "Free-text (e.g. '15_variant', 'fixed_bp_10kb')." },
+        "genome_bp":     { "type": "integer", "minimum": 1, "description": "For percent_genome_* in the summary." }
+      }
+    },
+
+    "outputs": {
+      "type": "object",
+      "description": "Server may ignore individual paths and stream the JSON response only — these are useful when running the engine locally / dispatcher writes them server-side.",
+      "additionalProperties": false,
+      "properties": {
+        "out_windows": { "type": "string" },
+        "out_regions": { "type": "string" },
+        "out_hdr":     { "type": "string" },
+        "out_summary": { "type": "string" }
+      }
+    }
+  },
+  "engine_binding": {
+    "binary": "engines/outlier_scan",
+    "cli_flag_map": {
+      "inputs.windows_tsv":            "--input",
+      "inputs.stronger_windows_tsv":   "--stronger_windows",
+      "inputs.genes_tsv":              "--genes_tsv",
+      "inputs.inversion_bed":          "--inversion_bed",
+      "inputs.breakpoint_bed":         "--breakpoint_bed",
+      "inputs.te_bed":                 "--te_bed",
+      "stat.name":                     "--stat_name",
+      "stat.direction":                "--direction",
+      "stat.stat_col":                 "--stat_col",
+      "stat.chrom_col":                "--chrom_col",
+      "stat.start_col":                "--start_col",
+      "stat.end_col":                  "--end_col",
+      "stat.nvar_col":                 "--nvar_col",
+      "thresholds.threshold":          "--threshold",
+      "thresholds.top_pct":            "--top_pct",
+      "thresholds.stronger_threshold": "--stronger_threshold",
+      "thresholds.merge_gap_bp":       "--merge_gap_bp",
+      "metadata.comparison_id":        "--comparison_id",
+      "metadata.group_a":              "--group_a",
+      "metadata.group_b":              "--group_b",
+      "metadata.window_mode":          "--window_mode",
+      "metadata.genome_bp":            "--genome_bp",
+      "outputs.out_windows":           "--out_windows",
+      "outputs.out_regions":           "--out_regions",
+      "outputs.out_hdr":               "--out_hdr",
+      "outputs.out_summary":           "--out_summary"
+    }
+  }
+}
