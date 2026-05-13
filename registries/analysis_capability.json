@@ -1,0 +1,248 @@
+{
+  "$schema": "../engines/schemas/analysis_capability.entry.schema.json",
+  "registry_kind": "engine_side_manifest",
+  "owner_repo": "unified-ancestry",
+  "description": "Self-describing list of every analysis this repo ships. Engine-side fields only (analysis_type, module, provides, requires, supported_execution_modes, result_schema, entrypoint, engine_binding_ref). A downstream server merges this with deployment_side fields (default_policy, allowed_policies, cost_class, reuse_scope) per cost-based_usage_data-management-policy-prompt.md.",
+  "last_updated": "2026-05-13",
+  "analyses": [
+
+    {
+      "analysis_type":   "outlier_scan",
+      "module":          "outlier_scan",
+      "provides":        ["outlier_scan_v1"],
+      "requires":        ["windows_tsv", "stat_col", "direction"],
+      "supported_execution_modes": {
+        "live": true, "memory_cache": true, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "outlier_scan_v1",
+      "entrypoint":      "outlier_scan",
+      "engine_binding_ref": "engines/schemas/outlier_scan.activator.schema.json#/engine_binding",
+      "notes": "Statistic-agnostic genome-wide outlier + HDR scan. Direction high|low|abs. Routes via popstats_dispatch."
+    },
+
+    {
+      "analysis_type":   "candidate_vs_flanks",
+      "module":          "candidate_vs_flanks",
+      "provides":        ["candidate_vs_flanks_v1"],
+      "requires":        ["candidates_bed", "windows_tsv", "stat_cols"],
+      "supported_execution_modes": {
+        "live": true, "memory_cache": true, "disk_cache": true, "precompute": false, "committed": true
+      },
+      "result_schema":   "candidate_vs_flanks_v1",
+      "entrypoint":      "candidate_vs_flanks",
+      "engine_binding_ref": "engines/schemas/candidate_vs_flanks.activator.schema.json#/engine_binding",
+      "notes": "Inversion-candidate-support test: inside-vs-flanks Wilcoxon for any per-window stat. Precompute=false because candidate sets change per session."
+    },
+
+    {
+      "analysis_type":   "xpehh",
+      "module":          "xpehh",
+      "provides":        ["xpehh_v1"],
+      "requires":        ["beagle_gl", "sample_list", "test_samples", "ref_samples"],
+      "supported_execution_modes": {
+        "live": false, "memory_cache": true, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "xpehh_v1",
+      "entrypoint":      "xpehh",
+      "engine_binding_ref": "engines/schemas/xpehh.activator.schema.json#/engine_binding",
+      "notes": "Diploid-IBS XP-EHH from BEAGLE GLs. live=false because chromosome-scale walk is too slow for interactive response on real cohorts."
+    },
+
+    {
+      "analysis_type":   "iHS",
+      "module":          "iHS",
+      "provides":        ["iHS_v1"],
+      "requires":        ["beagle_gl", "sample_list"],
+      "supported_execution_modes": {
+        "live": false, "memory_cache": true, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "iHS_v1",
+      "entrypoint":      "iHS",
+      "engine_binding_ref": "engines/schemas/iHS.activator.schema.json#/engine_binding",
+      "notes": "Single-cohort iHS approximation, allele 0 treated as ancestral. Chromosome-scale walk; not live."
+    },
+
+    {
+      "analysis_type":   "region_popstats",
+      "module":          "region_popstats",
+      "provides":        ["region_popstats_v3"],
+      "requires":        ["beagle_gl", "sample_list", "groups", "windows_or_fixed_win"],
+      "supported_execution_modes": {
+        "live": false, "memory_cache": false, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "region_popstats_v3",
+      "entrypoint":      "region_popstats",
+      "notes": "Cohort + per-group + per-pair Hudson FST, dXY, dA, theta_pi, theta_W, Tajima_D, Hp, MI, MInorm + HWE (with --karyotype) + per-SNP F_IS Wilcoxon. Heavy; typically precomputed per-chromosome. Activator schema not yet written (planned)."
+    },
+
+    {
+      "analysis_type":   "pi_NS",
+      "module":          "pi_NS",
+      "provides":        ["pi_NS_v2"],
+      "requires":        ["aligned_cds_fasta_or_list"],
+      "supported_execution_modes": {
+        "live": true, "memory_cache": true, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "pi_NS_v2",
+      "entrypoint":      "pi_NS",
+      "notes": "Population πN, πS, π0-fold, π4-fold, πN/πS, π0/π4 per locus, optional per-group. Coverage correction + codon-bootstrap CI. Activator schema planned."
+    },
+
+    {
+      "analysis_type":   "fdM",
+      "module":          "fdM",
+      "provides":        ["fdM_v1"],
+      "requires":        ["beagle_gl", "sample_list", "pops_p1_p2_p3_O"],
+      "supported_execution_modes": {
+        "live": false, "memory_cache": true, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "fdM_v1",
+      "entrypoint":      "fdM",
+      "notes": "Patterson's D + Malinsky 2015 fdM + optional block jackknife. Activator schema planned."
+    },
+
+    {
+      "analysis_type":   "codon_stats",
+      "module":          "codon_stats",
+      "provides":        ["codon_stats_v2"],
+      "requires":        ["aligned_cds_pairs_or_fasta"],
+      "supported_execution_modes": {
+        "live": true, "memory_cache": true, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "codon_stats_v2",
+      "entrypoint":      "codon_stats",
+      "notes": "NG86 + YN00 pairwise dN/dS + 4D sites. Fast enough for interactive use on small pair counts."
+    },
+
+    {
+      "analysis_type":   "region_test",
+      "module":          "region_test",
+      "provides":        ["region_test_v1"],
+      "requires":        ["values_tsv", "region_col", "value_cols"],
+      "supported_execution_modes": {
+        "live": true, "memory_cache": true, "disk_cache": true, "precompute": false, "committed": true
+      },
+      "result_schema":   "region_test_v1",
+      "entrypoint":      "region_test",
+      "notes": "Wilcoxon + permutation per region vs rest, for any TSV value cols. Precompute=false because regions are user-defined per session."
+    },
+
+    {
+      "analysis_type":   "ultrabootstrap",
+      "module":          "ultrabootstrap",
+      "provides":        ["ultrabootstrap_v1"],
+      "requires":        ["values_tsv", "value_cols"],
+      "supported_execution_modes": {
+        "live": true, "memory_cache": true, "disk_cache": true, "precompute": false, "committed": true
+      },
+      "result_schema":   "ultrabootstrap_v1",
+      "entrypoint":      "ultrabootstrap",
+      "notes": "Generic row / block bootstrap CI. Precompute=false because inputs are downstream of other analyses."
+    },
+
+    {
+      "analysis_type":   "instant_q_local_ancestry",
+      "module":          "instant_q",
+      "provides":        ["local_Q_v2"],
+      "requires":        ["beagle_gl", "sample_list", "fopt", "qinit"],
+      "supported_execution_modes": {
+        "live": false, "memory_cache": false, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "local_Q_v2",
+      "entrypoint":      "instant_q",
+      "notes": "Fixed-F EM local ancestry, per-window Q. Almost always precomputed once per chromosome × K. Activator schema not yet written."
+    },
+
+    {
+      "analysis_type":   "hobs_windower",
+      "module":          "hobs_windower",
+      "provides":        ["hobs_windower_v2"],
+      "requires":        ["hwe_gz_per_group_or_cohort"],
+      "supported_execution_modes": {
+        "live": false, "memory_cache": false, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "hobs_windower_v2",
+      "entrypoint":      "hobs_windower",
+      "notes": "Per-window Hobs (+ per-group with --groups). Reads ANGSD .hwe.gz (not BEAGLE). Activator schema planned."
+    },
+
+    {
+      "analysis_type":   "rare_sfs_pairwise",
+      "module":          "rare_sfs_pairwise",
+      "provides":        ["rare_sfs_pairwise_v1"],
+      "requires":        ["beagle_gl", "sample_list", "groups"],
+      "supported_execution_modes": {
+        "live": false, "memory_cache": false, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "rare_sfs_pairwise_v1",
+      "entrypoint":      "rare_sfs_pairwise",
+      "notes": "Bergström 2020-style pairwise rare-allele sharing matrix. WIP; not yet in inversion paper pipeline."
+    },
+
+    {
+      "analysis_type":   "export_q_residual_dosage",
+      "module":          "export_q_residual_dosage",
+      "provides":        ["q_residual_dosage_v1"],
+      "requires":        ["beagle_gl", "fopt", "local_q", "sample_list"],
+      "supported_execution_modes": {
+        "live": false, "memory_cache": false, "disk_cache": true, "precompute": true, "committed": true
+      },
+      "result_schema":   "q_residual_dosage_v1",
+      "entrypoint":      "export_q_residual_dosage",
+      "notes": "Q-corrected residual dosage for cohort-wide structure correction. WIP; not yet wired."
+    },
+
+    {
+      "analysis_type":   "homolog_index_build",
+      "module":          "homolog_index_build",
+      "provides":        ["homolog_index_v1"],
+      "requires":        ["diamond_tabular_or_miniprot_paf_or_manifest"],
+      "supported_execution_modes": {
+        "live": false, "memory_cache": false, "disk_cache": false, "precompute": true, "committed": true
+      },
+      "result_schema":   "homolog_index_v1_binary",
+      "entrypoint":      "homolog_index_build",
+      "notes": "Offline build only — produces a .holindx binary. Never run live."
+    },
+
+    {
+      "analysis_type":   "homolog_index_query",
+      "module":          "homolog_index_query",
+      "provides":        ["homolog_query_v1"],
+      "requires":        ["holindx_file", "gene_id"],
+      "supported_execution_modes": {
+        "live": true, "memory_cache": true, "disk_cache": true, "precompute": false, "committed": false
+      },
+      "result_schema":   "homolog_query_v1",
+      "entrypoint":      "homolog_index_query",
+      "notes": "Microsecond mmap lookup. Live is the natural mode; caching usually unnecessary."
+    },
+
+    {
+      "analysis_type":   "homolog_atlas_lookup_http",
+      "module":          "homolog_atlas_server",
+      "provides":        ["homolog_query_v1"],
+      "requires":        ["holindx_file"],
+      "supported_execution_modes": {
+        "live": true, "memory_cache": true, "disk_cache": false, "precompute": false, "committed": false
+      },
+      "result_schema":   "homolog_query_v1",
+      "entrypoint":      "homolog_atlas_server",
+      "notes": "HTTP service over the homolog index. Long-running process; atlas page hits /lookup. Not really an analysis_type in the batch sense — registered so the deployment server knows about it."
+    },
+
+    {
+      "analysis_type":   "popstats_dispatch",
+      "module":          "popstats_dispatch",
+      "provides":        ["popstats_extractor_v1"],
+      "requires":        ["activator_json_on_stdin"],
+      "supported_execution_modes": {
+        "live": true, "memory_cache": false, "disk_cache": false, "precompute": false, "committed": false
+      },
+      "result_schema":   "popstats_extractor_v1",
+      "entrypoint":      "popstats_dispatch",
+      "engine_binding_ref": "engines/schemas/popstats_server.activator.schema.json",
+      "notes": "JSON activator → engine → JSON extractor adapter. Not an analysis itself; it dispatches to outlier_scan / candidate_vs_flanks / xpehh / iHS. Stateless: caching is the server's job (see schemas/README.md)."
+    }
+  ]
+}
