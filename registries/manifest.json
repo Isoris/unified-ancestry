@@ -36,14 +36,14 @@
       "consumer_action": "resolve subset_id to sample_list_path before passing into an engine"
     },
     {
-      "name":         "cov_registry",
-      "kind":         "pcangsd_covariance_files",
+      "name":         "set_registry",
+      "kind":         "generic_file_sets",
       "format":       "tsv_with_header",
-      "path":         "registries/cov_registry.tsv",
-      "schema":       "engines/schemas/cov_registry.schema.json",
+      "path":         "registries/set_registry.tsv",
+      "schema":       "engines/schemas/set_registry.schema.json",
       "built_by":     "registries/build_registries.py",
-      "describes":    "PCAngsd .cov files indexed by scope (global vs per-chromosome)",
-      "consumer_action": "look up by chrom or scope to find the right .cov input"
+      "describes":    "generic file sets — cov / sites / mask / callable_bed / recombination_map / ... — discriminated by the set_type column. One row per file with set_id, set_type, set_subtype, scope, chrom, path, description.",
+      "consumer_action": "filter by set_type + (chrom OR scope) to find the input you need for an analysis"
     }
   ],
 

@@ -13,7 +13,7 @@ just the data.
 | `analysis_capability.json`  | what analyses this repo ships (engine-side fields only) | `engines/schemas/analysis_capability.entry.schema.json` |
 | `interval_registry.tsv`     | intervals at all scales (genome / chrom / SNP windows / candidates) | `engines/schemas/interval_registry.schema.json` |
 | `sample_subsets.tsv`        | named sample groupings → paths to ID-per-line files | `engines/schemas/sample_subsets.schema.json` |
-| `cov_registry.tsv`          | PCAngsd .cov files indexed by chrom/scope | `engines/schemas/cov_registry.schema.json` |
+| `set_registry.tsv`          | generic file sets (cov / sites / mask / callable_bed / recombination_map / ...) discriminated by `set_type` column | `engines/schemas/set_registry.schema.json` |
 | `build_registries.py`       | builder for the 3 TSV registries | — |
 
 ## Two kinds of registry
@@ -27,9 +27,14 @@ specific deployment wires it (default_policy, cost_class, reuse_scope
 live in the consumer server's deployment-policy file, not here).
 
 **Discovery TSVs (auto-built, machine-emitted).**
-`interval_registry.tsv`, `sample_subsets.tsv`, `cov_registry.tsv` are
+`interval_registry.tsv`, `sample_subsets.tsv`, `set_registry.tsv` are
 rebuilt by `build_registries.py` from the cohort's config + on-disk
 artifacts. Re-run the builder when the cohort or assembly changes.
+
+The `set_registry` is intentionally generic: one TSV holds covariance
+files, sites lists, callable masks, recombination maps, and anything
+else added later — discriminated by the `set_type` column rather than
+fragmenting into one registry per file kind.
 
 ## Building the TSV registries
 
@@ -54,7 +59,10 @@ unified-ancestry/registries/manifest.json
        │
        ├──► interval_registry.tsv  ──── filter rows ──► picks the interval(s) for an analysis
        ├──► sample_subsets.tsv     ──── lookup id   ──► passes sample_list_path to the engine
-       └──► cov_registry.tsv       ──── lookup chrom─► passes cov_path to PCA-using analyses
+       └──► set_registry.tsv       ──── filter by set_type + chrom/scope
+                                   ──── e.g. set_type=cov → .cov path
+                                        set_type=sites → ANGSD .sites path
+                                        set_type=callable_bed → mask BED path
 ```
 
 The schemas live in `engines/schemas/` (not duplicated here) so they

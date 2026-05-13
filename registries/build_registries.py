@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-build_registries.py — Build interval and sample subset registries.
+build_registries.py — Build interval / sample-subset / set registries.
 
 Generates:
   registries/interval_registry.tsv    — all intervals at all scales
   registries/sample_subsets.tsv       — named sample subsets with paths
-  registries/cov_registry.tsv         — PCAngsd covariance file registry
+  registries/set_registry.tsv         — generic registry of file 'sets'
+                                          (cov / sites / mask / ... — discriminated
+                                          by the set_type column)
 
 Usage:
   python3 build_registries.py \
@@ -166,27 +168,116 @@ def build_subsets(cfg):
     return subsets
 
 
-def build_cov_registry(cfg):
-    rows = []
-    # Scan for PCAngsd .cov files
-    step1 = cfg.get("STEP1_DIR", "")
-    pcangsd_dir = os.path.join(step1, "05_pcangsd_byLG") if step1 else ""
+def _detect_chrom_in_path(path):
+    """Best-effort chromosome detection from a filesystem path."""
+    parts = path.split(os.sep)
+    for p in parts:
+        if p.startswith("C_gar_LG") or (p.startswith("LG") and p[2:].isdigit()):
+            return p
+    return ""
 
+
+def build_set_registry(cfg):
+    """Generic file-set registry: cov / sites / mask / ... All discriminated
+    by the set_type column. Extend the per-type scanners below as more
+    artifact types come online (callable masks, recombination maps, etc.).
+    Schema: engines/schemas/set_registry.schema.json."""
+    rows = []
+    step1 = cfg.get("STEP1_DIR", "")
+
+    # ── set_type='cov' — PCAngsd covariance matrices ─────────────────────
+    pcangsd_dir = os.path.join(step1, "05_pcangsd_byLG") if step1 else ""
     if pcangsd_dir and os.path.isdir(pcangsd_dir):
         for cov_path in sorted(glob.glob(os.path.join(pcangsd_dir, "**", "*.cov"), recursive=True)):
-            parts = cov_path.split(os.sep)
-            chrom = ""
-            for p in parts:
-                if p.startswith("C_gar_LG") or (p.startswith("LG") and p[2:].isdigit()):
-                    chrom = p; break
-
+            chrom = _detect_chrom_in_path(cov_path)
             rows.append({
-                "cov_id": os.path.basename(cov_path).replace(".cov", ""),
-                "scope": "chromosome" if chrom else "global",
-                "chrom": chrom or "genome",
-                "cov_path": cov_path,
+                "set_id":      os.path.basename(cov_path).replace(".cov", ""),
+                "set_type":    "cov",
+                "set_subtype": "pcangsd_default",
+                "scope":       "chromosome" if chrom else "global",
+                "chrom":       chrom or "genome",
+                "path":        cov_path,
+                "description": "PCAngsd .cov" + (f" for {chrom}" if chrom else ""),
             })
 
+    # ── set_type='sites' — ANGSD sites lists ─────────────────────────────
+    # Single-file SITES_FILE convention, or scan a SITES_DIR.
+    sites_file = cfg.get("SITES_FILE", "")
+    if sites_file and os.path.isfile(sites_file):
+        rows.append({
+            "set_id":      os.path.basename(sites_file).replace(".sites", ""),
+            "set_type":    "sites",
+            "set_subtype": cfg.get("SITES_SUBTYPE", ""),
+            "scope":       "global",
+            "chrom":       "genome",
+            "path":        sites_file,
+            "description": "ANGSD sites list from $SITES_FILE",
+        })
+    sites_dir = cfg.get("SITES_DIR", "")
+    if sites_dir and os.path.isdir(sites_dir):
+        for sf in sorted(glob.glob(os.path.join(sites_dir, "**", "*.sites"), recursive=True)):
+            chrom = _detect_chrom_in_path(sf)
+            rows.append({
+                "set_id":      os.path.basename(sf).replace(".sites", ""),
+                "set_type":    "sites",
+                "set_subtype": "",
+                "scope":       "chromosome" if chrom else "global",
+                "chrom":       chrom or "genome",
+                "path":        sf,
+                "description": "",
+            })
+
+    # ── set_type='callable_bed' — callable-region masks ──────────────────
+    callable_bed = cfg.get("CALLABLE_BED", "")
+    if callable_bed and os.path.isfile(callable_bed):
+        rows.append({
+            "set_id":      os.path.basename(callable_bed).replace(".bed", ""),
+            "set_type":    "callable_bed",
+            "set_subtype": cfg.get("CALLABLE_SUBTYPE", ""),
+            "scope":       "global",
+            "chrom":       "genome",
+            "path":        callable_bed,
+            "description": "Callable regions from $CALLABLE_BED",
+        })
+
+    # ── set_type='mask' — any other regions-to-mask BED ──────────────────
+    mask_bed = cfg.get("MASK_BED", "")
+    if mask_bed and os.path.isfile(mask_bed):
+        rows.append({
+            "set_id":      os.path.basename(mask_bed).replace(".bed", ""),
+            "set_type":    "mask",
+            "set_subtype": "",
+            "scope":       "global",
+            "chrom":       "genome",
+            "path":        mask_bed,
+            "description": "Mask BED from $MASK_BED",
+        })
+
+    # ── set_type='recombination_map' — per-genome rate map ───────────────
+    rec_map = cfg.get("RECOMBINATION_MAP", "")
+    if rec_map and os.path.isfile(rec_map):
+        rows.append({
+            "set_id":      os.path.basename(rec_map).rsplit(".", 1)[0],
+            "set_type":    "recombination_map",
+            "set_subtype": "",
+            "scope":       "global",
+            "chrom":       "genome",
+            "path":        rec_map,
+            "description": "Recombination rate map from $RECOMBINATION_MAP",
+        })
+
+    return rows
+
+
+# Backward-compat alias — older callers may still import build_cov_registry.
+def build_cov_registry(cfg):
+    """Deprecated. Use build_set_registry; this returns only cov-typed rows
+    in the OLD column shape ({cov_id, scope, chrom, cov_path})."""
+    rows = []
+    for r in build_set_registry(cfg):
+        if r["set_type"] != "cov": continue
+        rows.append({"cov_id": r["set_id"], "scope": r["scope"],
+                      "chrom": r["chrom"], "cov_path": r["path"]})
     return rows
 
 
@@ -231,19 +322,23 @@ def main():
     for s in subsets:
         print(f"  {s['subset_id']}: {s['n_samples']} samples")
 
-    # Cov registry
-    print("\n[INFO] Building covariance registry...")
-    covs = build_cov_registry(cfg)
-    cov_path = os.path.join(args.outdir, "cov_registry.tsv")
-    if covs:
-        with open(cov_path, "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=["cov_id", "scope", "chrom", "cov_path"],
-                               delimiter="\t")
+    # Set registry — generic file sets (cov / sites / mask / ...)
+    print("\n[INFO] Building set registry...")
+    sets = build_set_registry(cfg)
+    set_path = os.path.join(args.outdir, "set_registry.tsv")
+    if sets:
+        fields = ["set_id", "set_type", "set_subtype", "scope", "chrom", "path", "description"]
+        with open(set_path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
             w.writeheader()
-            w.writerows(covs)
-        print(f"[OK] {len(covs)} cov files: {cov_path}")
+            w.writerows(sets)
+        from collections import Counter
+        by_type = Counter(r["set_type"] for r in sets)
+        print(f"[OK] {len(sets)} sets: {set_path}")
+        for k, v in sorted(by_type.items()):
+            print(f"  {k}: {v}")
     else:
-        print("[INFO] No PCAngsd .cov files found")
+        print("[INFO] No set files found")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "set_registry.schema.json",
+  "title": "set_registry.tsv row schema",
+  "description": "Generic registry of file 'sets' the pipeline produces or consumes — covariance matrices, sites lists, masks, recombination maps, etc. One row per file. Discriminated by `set_type`. Produced (in part) by registries/build_registries.py; downstream consumers look up by (set_type, scope, chrom) or by set_id.",
+  "type": "object",
+  "tsv_columns_in_order": [
+    "set_id", "set_type", "set_subtype", "scope", "chrom", "path", "description"
+  ],
+  "required": ["set_id", "set_type", "scope", "chrom", "path"],
+  "additionalProperties": false,
+  "properties": {
+    "set_id": {
+      "type": "string",
+      "description": "Stable id (typically filename basename without extension). Unique across the registry."
+    },
+    "set_type": {
+      "type": "string",
+      "description": "What kind of file this row points at. Free-form to allow future additions. Recommended vocabulary: 'cov' (PCAngsd .cov), 'sites' (ANGSD .sites position list), 'mask' (BED of regions to include/exclude), 'recombination_map', 'ancestral_fasta', 'callable_bed', 'snp_list', 'haplotype_blocks'. Add new tokens as needed; keep them lowercase_with_underscores."
+    },
+    "set_subtype": {
+      "type": "string",
+      "description": "Optional finer-grained tag within a set_type. E.g. for set_type='cov', set_subtype could be 'pcangsd_default' / 'pcangsd_pruned'. For set_type='sites', could be 'all' / 'biallelic_maf05'. Empty string if not used."
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["chromosome", "global", "region"],
+      "description": "Coverage of the file. 'chromosome' = per-LG; 'global' = whole genome; 'region' = restricted to one named region/candidate."
+    },
+    "chrom": {
+      "type": "string",
+      "description": "Chromosome name when scope='chromosome'. 'genome' when scope='global'. The region's chromosome when scope='region'."
+    },
+    "path": {
+      "type": "string",
+      "description": "Absolute or repo-relative path to the file on disk."
+    },
+    "description": {
+      "type": "string",
+      "description": "Free-form note. E.g. 'PCAngsd default cov for LG28 after STEP1 v3', 'biallelic SNP sites with MAF>5% after BEAGLE imputation'."
+    }
+  },
+  "consistency_rules": {
+    "global_uses_genome":  "scope='global' rows MUST have chrom='genome'.",
+    "chrom_required":      "scope='chromosome' rows MUST have a non-empty, non-'genome' chrom value.",
+    "region_scope_note":   "scope='region' rows SHOULD encode the region id in `set_subtype` or `description`; the chrom column carries the region's chromosome.",
+    "type_subtype_pair":   "(set_type, set_subtype) pairs SHOULD be stable across rebuilds — change set_subtype only when the file's construction recipe changes."
+  },
+  "examples": [
+    {
+      "set_id":      "LG28_pcangsd_default",
+      "set_type":    "cov",
+      "set_subtype": "pcangsd_default",
+      "scope":       "chromosome",
+      "chrom":       "C_gar_LG28",
+      "path":        "/data/step1/05_pcangsd_byLG/C_gar_LG28/LG28_pcangsd_default.cov",
+      "description": "PCAngsd default cov for LG28"
+    },
+    {
+      "set_id":      "biallelic_maf05",
+      "set_type":    "sites",
+      "set_subtype": "biallelic_maf05",
+      "scope":       "global",
+      "chrom":       "genome",
+      "path":        "/data/step1/03_angsd_sites/biallelic_maf05.sites",
+      "description": "Biallelic SNPs with MAF > 0.05 after BEAGLE imputation"
+    },
+    {
+      "set_id":      "callable_226samples",
+      "set_type":    "callable_bed",
+      "set_subtype": "depth5_mq30",
+      "scope":       "global",
+      "chrom":       "genome",
+      "path":        "/data/step1/06_callable/callable_226samples.bed",
+      "description": "Callable regions: depth>=5 and MQ>=30 across all 226 samples"
+    }
+  ]
+}
