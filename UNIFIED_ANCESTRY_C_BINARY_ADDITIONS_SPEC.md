@@ -421,4 +421,14 @@ input is needed:
 
 3. **Output file naming**. The new per-variant per-group dosage
    output (Addition 3) is a separate long-format TSV. Naming
-   [TRUNCATED — the source paste ended here mid-sentence.]
+   suggestion: `<input_prefix>.per_variant_group_dosage.tsv.gz`.
+   Quentin to confirm or override.
+
+4. **`--reference_F` perturbation magnitude.** σ ≈ 0.02 is a
+   guess. Quentin's experience with the instant_q EM convergence
+   behaviour on this cohort should inform the default.
+
+5. **Does Quentin actually have BEAGLE GLs ready** for all 226
+   samples across all 28 LGs? If not, the prerequisite work is to
+   complete that pipeline first — every Addition in this spec
+   assumes GL input is available.
